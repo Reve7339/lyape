@@ -1,0 +1,42 @@
+*.iml
+.gradle/
+.kotlin/
+.buildenv/
+.idea/
+.DS_Store
+Thumbs.db
+build/
+captures/
+local.properties
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+delivery/
+__pycache__/
+*.py[cod]
+*.log
+*.hprof
+# Datos locales y respaldos de pruebas o dispositivos.
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+# Material de trabajo local, sin borrar sus archivos.
+/docs/
+/mockups/
+/AGENTS.md
+/COMMANDCODE.md
+# Configuración local de herramientas.
+/.agents/
+/.codex/
+/.aws/
+# Firma y secretos locales: nunca forman parte del código abierto.
+*.jks
+*.keystore
+keystore.properties
+.env
+.env.*
+!.env.example

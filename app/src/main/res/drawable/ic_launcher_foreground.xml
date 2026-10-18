@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Primer plano del icono adaptativo: solo el trazo de "Registro continuo".
+  El grupo reducido mantiene el símbolo centrado y con margen dentro de la zona segura.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+
+    <group
+        android:pivotX="256"
+        android:pivotY="256"
+        android:scaleX="0.78"
+        android:scaleY="0.78">
+
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M143,111 v249 c0,23 18,41 41,41 h184"
+            android:strokeColor="#35223E"
+            android:strokeWidth="42"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M176,328 h60 l35,-72 l46,40 l61,-106"
+            android:strokeColor="#704386"
+            android:strokeWidth="36"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+
+        <path
+            android:fillColor="#704386"
+            android:pathData="M378,190 m-18,0 a18,18 0 1,1 36,0 a18,18 0 1,1 -36,0 Z" />
+    </group>
+</vector>

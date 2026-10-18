@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Tema mínimo de la ventana. La apariencia real la define Compose en LyapeTheme.
+      El fondo evita destellos claros/oscuros durante el arranque.
+    -->
+    <style name="Theme.LYape" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/lyape_cream</item>
+    </style>
+</resources>

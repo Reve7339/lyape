@@ -1,0 +1,192 @@
+name: Calidad y release
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  unit:
+    name: Pruebas y lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@da187c8e6ffbd3802e00f2477aa5a822b25f2dda # v4.4.4
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+      - name: Preparar SDK de compilación
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
+      - name: Probar la propia puerta de calidad
+        run: python3 -m unittest discover -s scripts/tests -v
+      - name: Compilar, probar y analizar
+        # Separar variantes libera Metaspace sin aumentar los límites de Gradle.
+        run: |
+          ./gradlew --no-daemon --console=plain :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :app:assembleDebugAndroidTest
+          ./gradlew --no-daemon --console=plain :app:assembleRelease
+          ./gradlew --no-daemon --console=plain :app:testReleaseUnitTest
+          ./gradlew --no-daemon --console=plain :app:lintRelease
+      - name: Comprobar ejecución de escenarios BDD
+        run: |
+          python3 scripts/verify_test_reports.py unit
+          python3 scripts/verify_test_reports.py unit --reports app/build/test-results/testReleaseUnitTest
+      - name: Guardar reportes aunque falle una prueba
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: reportes-unitarias-lint
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/reports/lint-results-release.*
+          if-no-files-found: warn
+          retention-days: 14
+
+  android:
+    name: Android API ${{ matrix.api }}
+    needs: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # Mínimo soportado y target actual. Solo emuladores, nunca un teléfono físico.
+        api: [26, 35]
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@da187c8e6ffbd3802e00f2477aa5a822b25f2dda # v4.4.4
+        with:
+          cache-read-only: true
+      - name: Preparar SDK de compilación
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
+      - name: Habilitar aceleración del emulador
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Ejecutar integración, interfaz y persistencia
+        uses: reactivecircus/android-emulator-runner@324029e2f414c084d8b15ba075288885e74aef9c # v2.34.0
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: |
+            ./gradlew --no-daemon --console=plain :app:connectedDebugAndroidTest
+            python3 scripts/verify_test_reports.py android
+      - name: Guardar reportes de Android
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: reportes-android-api-${{ matrix.api }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  delivery:
+    name: Publicar APK release
+    needs: [unit, android]
+    # Las ramas y PR solo verifican. Una etiqueta vX.Y.Z publica tras pasar toda la CI.
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@da187c8e6ffbd3802e00f2477aa5a822b25f2dda # v4.4.4
+        with:
+          cache-read-only: true
+      - name: Preparar SDK de compilación
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
+      - name: Compilar y firmar con la clave de publicación
+        env:
+          LYAPE_RELEASE_KEYSTORE_BASE64: ${{ secrets.LYAPE_RELEASE_KEYSTORE_BASE64 }}
+          LYAPE_RELEASE_STORE_PASSWORD: ${{ secrets.LYAPE_RELEASE_STORE_PASSWORD }}
+          LYAPE_RELEASE_KEY_ALIAS: ${{ secrets.LYAPE_RELEASE_KEY_ALIAS }}
+          LYAPE_RELEASE_KEY_PASSWORD: ${{ secrets.LYAPE_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in LYAPE_RELEASE_KEYSTORE_BASE64 LYAPE_RELEASE_STORE_PASSWORD LYAPE_RELEASE_KEY_ALIAS LYAPE_RELEASE_KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Falta el secreto $name. Consulta Publicación en README.md."
+              exit 1
+            fi
+          done
+          umask 077
+          export LYAPE_RELEASE_STORE_FILE="$RUNNER_TEMP/lyape-release.keystore"
+          printf '%s' "$LYAPE_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$LYAPE_RELEASE_STORE_FILE"
+          ./gradlew --no-daemon --console=plain :app:assembleRelease
+      - name: Verificar firma, versión y APK no depurable
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tools="$ANDROID_HOME/build-tools/35.0.0"
+          apk=app/build/outputs/apk/release/app-release.apk
+          mkdir -p delivery
+          "$tools/apksigner" verify --verbose --print-certs "$apk" > delivery/CERTIFICATE.txt
+          if grep -q 'CN=Android Debug' delivery/CERTIFICATE.txt; then
+            echo '::error::No se publica con la clave debug.'
+            exit 1
+          fi
+          "$tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/lyape-release-badging.txt"
+          python3 scripts/verify_release.py --tag "$RELEASE_TAG" \
+            --metadata app/build/outputs/apk/release/output-metadata.json \
+            --badging "$RUNNER_TEMP/lyape-release-badging.txt"
+          version="${RELEASE_TAG#v}"
+          cp "$apk" "delivery/LYape-$version.apk"
+          cp app/build/outputs/apk/release/output-metadata.json delivery/
+          printf '%s\n' "$SOURCE_COMMIT" > delivery/COMMIT.txt
+          cd delivery
+          sha256sum "LYape-$version.apk" > SHA256SUMS
+      - name: Publicar en GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          gh release create "$RELEASE_TAG" --verify-tag --title "LYape $version" \
+            --generate-notes \
+            --notes 'Android 8.0 o superior. No desinstales una instalación con datos para cambiar de firma.' \
+            "delivery/LYape-$version.apk" delivery/SHA256SUMS delivery/CERTIFICATE.txt \
+            delivery/output-metadata.json delivery/COMMIT.txt
+      - name: Retirar la clave del runner
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/lyape-release.keystore"
