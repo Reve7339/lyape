@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+# Solo runners de GitHub; gradle.properties y el lanzador local conservan sus límites.
+env:
+  CI_GRADLE_JVM_ARGS: -Xmx1024m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8
+
 concurrency:
   group: android-quality-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -41,12 +45,14 @@ jobs:
       - name: Probar la propia puerta de calidad
         run: python3 -m unittest discover -s scripts/tests -v
       - name: Compilar, probar y analizar
-        # Separar variantes libera Metaspace sin aumentar los límites de Gradle.
+        # Cada fase libera las clases del compilador y de lint antes de la siguiente.
         run: |
-          ./gradlew --no-daemon --console=plain :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :app:assembleDebugAndroidTest
-          ./gradlew --no-daemon --console=plain :app:assembleRelease
-          ./gradlew --no-daemon --console=plain :app:testReleaseUnitTest
-          ./gradlew --no-daemon --console=plain :app:lintRelease
+          ./gradlew "-Dorg.gradle.jvmargs=$CI_GRADLE_JVM_ARGS" --no-daemon --console=plain :app:assembleDebug :app:assembleDebugAndroidTest
+          ./gradlew "-Dorg.gradle.jvmargs=$CI_GRADLE_JVM_ARGS" --no-daemon --console=plain :app:testDebugUnitTest
+          ./gradlew "-Dorg.gradle.jvmargs=$CI_GRADLE_JVM_ARGS" --no-daemon --console=plain :app:lintDebug
+          ./gradlew "-Dorg.gradle.jvmargs=$CI_GRADLE_JVM_ARGS" --no-daemon --console=plain :app:assembleRelease
+          ./gradlew "-Dorg.gradle.jvmargs=$CI_GRADLE_JVM_ARGS" --no-daemon --console=plain :app:testReleaseUnitTest
+          ./gradlew "-Dorg.gradle.jvmargs=$CI_GRADLE_JVM_ARGS" --no-daemon --console=plain :app:lintRelease
       - name: Comprobar ejecución de escenarios BDD
         run: |
           python3 scripts/verify_test_reports.py unit
@@ -105,7 +111,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: |
-            ./gradlew --no-daemon --console=plain :app:connectedDebugAndroidTest
+            ./gradlew "-Dorg.gradle.jvmargs=$CI_GRADLE_JVM_ARGS" --no-daemon --console=plain :app:connectedDebugAndroidTest
             python3 scripts/verify_test_reports.py android
       - name: Guardar reportes de Android
         if: always()
@@ -161,7 +167,7 @@ jobs:
           umask 077
           export LYAPE_RELEASE_STORE_FILE="$RUNNER_TEMP/lyape-release.keystore"
           printf '%s' "$LYAPE_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$LYAPE_RELEASE_STORE_FILE"
-          ./gradlew --no-daemon --console=plain :app:assembleRelease
+          ./gradlew "-Dorg.gradle.jvmargs=$CI_GRADLE_JVM_ARGS" --no-daemon --console=plain :app:assembleRelease
       - name: Verificar firma, versión y APK no depurable
         env:
           RELEASE_TAG: ${{ github.ref_name }}
