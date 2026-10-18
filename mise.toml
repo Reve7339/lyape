@@ -1,0 +1,23 @@
+[tools]
+java = "temurin-21.0.10+7.0.LTS"
+
+[env]
+ANDROID_HOME = "{{env.HOME}}/.local/share/android/sdk"
+ANDROID_SDK_ROOT = "{{env.HOME}}/.local/share/android/sdk"
+GRADLE_USER_HOME = "{{config_root}}/.buildenv/gradle-home"
+_.path = ["{{env.HOME}}/.local/share/android/sdk/platform-tools", "{{env.HOME}}/.local/share/android/sdk/cmdline-tools/latest/bin"]
+
+[tasks."env:check"]
+description = "Verify Android tools without building"
+run = "python3 scripts/android_environment.py"
+
+[tasks."android:setup"]
+description = "Install declared Android packages and configure local paths"
+run = "python3 scripts/android_environment.py --install"
+
+[tasks."android:configure"]
+run = "python3 scripts/android_environment.py --configure"
+
+[tasks."gradle:tasks"]
+description = "List Gradle tasks through the mandatory 4 GiB safety guard"
+run = "bash scripts/local-safe.sh gradle tasks"
