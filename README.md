@@ -30,23 +30,6 @@ bash scripts/local-safe.sh gradle :app:assembleDebug :app:testDebugUnitTest :app
 El lanzador limita las tareas a 4 GiB compartidos. Compila con el emulador apagado y no
 ejecutes pruebas sobre un teléfono con datos reales. [Pruebas y contribuciones](CONTRIBUTING.md).
 
-## Publicación
-
-La etiqueta `v0.0.1` publicará `LYape-0.0.1.apk` en GitHub Releases tras pasar pruebas y lint.
-La CI verifica JVM en debug/release y recorridos Android en emuladores API 26/35.
-Las ramas y PR no publican APK.
-
-Configura estos secretos en GitHub → Settings → Secrets and variables → Actions:
-
-- `LYAPE_RELEASE_KEYSTORE_BASE64`: keystore de publicación en base64.
-- `LYAPE_RELEASE_STORE_PASSWORD`: contraseña del keystore.
-- `LYAPE_RELEASE_KEY_ALIAS`: alias de la clave.
-- `LYAPE_RELEASE_KEY_PASSWORD`: contraseña de la clave.
-
-Conserva la misma clave para actualizar; nunca la subas al repositorio. Para cada versión,
-actualiza `versionName`, aumenta `versionCode` y publica la etiqueta `vX.Y.Z` correspondiente.
-La release no actualiza una instalación debug con otra firma: no la desinstales si tiene datos.
-
 Proyecto independiente, no afiliado a Yape.
 
 Licencia [MIT](LICENSE).

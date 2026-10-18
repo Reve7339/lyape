@@ -142,7 +142,7 @@ jobs:
           set -euo pipefail
           for name in LYAPE_RELEASE_KEYSTORE_BASE64 LYAPE_RELEASE_STORE_PASSWORD LYAPE_RELEASE_KEY_ALIAS LYAPE_RELEASE_KEY_PASSWORD; do
             if [[ -z "${!name}" ]]; then
-              echo "::error::Falta el secreto $name. Consulta Publicación en README.md."
+              echo "::error::Falta el secreto de firma $name."
               exit 1
             fi
           done

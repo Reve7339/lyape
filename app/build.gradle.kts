@@ -17,7 +17,7 @@ val releaseSigning = listOf(
 val hasReleaseSigning = releaseSigning.values.any { it != null }
 if (hasReleaseSigning) {
     require(releaseSigning.values.all { !it.isNullOrBlank() }) {
-        "La configuración de firma release está incompleta. Consulta Publicación en README.md."
+        "La configuración de firma release está incompleta."
     }
 }
 
