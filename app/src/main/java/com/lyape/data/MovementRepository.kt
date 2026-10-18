@@ -5,6 +5,12 @@ import com.lyape.domain.Movement
 import com.lyape.domain.MovementClassification
 import com.lyape.domain.MovementEdits
 import com.lyape.domain.MovementFactory
+import com.lyape.domain.MovementCounts
+import com.lyape.domain.normalizeMovementSearch
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.map
 import com.lyape.domain.Totals
 import com.lyape.domain.TotalsCalculator
 import kotlinx.coroutines.flow.Flow
@@ -27,8 +33,15 @@ class MovementRepository(
     private val newId: () -> UUID = UUID::randomUUID,
 ) {
 
-    fun observeAll(): Flow<List<Movement>> =
-        dao.observeAll().map { entities -> entities.map(MovementEntity::toDomain) }
+    fun history(
+        classification: MovementClassification?,
+        query: String,
+    ): Flow<PagingData<Movement>> = Pager(
+        config = HISTORY_PAGING_CONFIG,
+        pagingSourceFactory = { dao.pageHistory(classification, normalizeMovementSearch(query)) },
+    ).flow.map { page -> page.map(MovementEntity::toDomain) }
+
+    fun observeCounts(): Flow<MovementCounts> = dao.observeCounts()
 
     fun observeInRange(range: DateRange): Flow<List<Movement>> =
         dao.observeInRange(range.start.toEpochMilli(), range.endExclusive.toEpochMilli())
@@ -175,3 +188,12 @@ class MovementRepository(
         return true
     }
 }
+
+/** Ventana acotada; las páginas lejanas se descartan, no se acumulan al desplazarse. */
+internal val HISTORY_PAGING_CONFIG = PagingConfig(
+    pageSize = 50,
+    initialLoadSize = 50,
+    prefetchDistance = 10,
+    maxSize = 150,
+    enablePlaceholders = false,
+)

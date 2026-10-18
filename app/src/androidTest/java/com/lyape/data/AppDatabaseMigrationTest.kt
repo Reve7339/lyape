@@ -67,7 +67,7 @@ class AppDatabaseMigrationTest {
 
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         database = Room.databaseBuilder(context, AppDatabase::class.java, TEST_DB)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .allowMainThreadQueries()
             .build()
 
@@ -113,7 +113,7 @@ class AppDatabaseMigrationTest {
 
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         database = Room.databaseBuilder(context, AppDatabase::class.java, TEST_DB)
-            .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .allowMainThreadQueries()
             .build()
 
@@ -144,7 +144,7 @@ class AppDatabaseMigrationTest {
 
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         database = Room.databaseBuilder(context, AppDatabase::class.java, TEST_DB)
-            .addMigrations(MIGRATION_3_4)
+            .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
             .allowMainThreadQueries()
             .build()
 
@@ -169,6 +169,27 @@ class AppDatabaseMigrationTest {
             assertEquals(10_000L, plan.expenses.single().amountCents)
             assertEquals(150_000L, plan.goal?.amountCents)
             assertEquals(GoalMode.FIXED_MONTHLY, plan.goalMode)
+        }
+    }
+    @Test
+    fun historyMigration04To05PreservesRowsAndBackfillsSearch() {
+        helper.createDatabase(TEST_DB, 4).use { v4 ->
+            v4.execSQL(INSERT_V1_ROW.replace("Cliente real", "María Ñúñez"))
+            v4.execSQL("UPDATE movements SET description = 'Pago 10%_literal', previousClassification = 'PERSONAL'")
+        }
+        helper.runMigrationsAndValidate(TEST_DB, 5, true, MIGRATION_4_5).use { migrated ->
+            migrated.query("SELECT * FROM movements").use { rows ->
+                assertEquals(1, rows.count)
+                rows.moveToFirst()
+                assertEquals(128450L, rows.getLong(rows.getColumnIndexOrThrow("amountCents")))
+                assertEquals("María Ñúñez", rows.getString(rows.getColumnIndexOrThrow("senderName")))
+                assertEquals("maria nunez", rows.getString(rows.getColumnIndexOrThrow("searchTitle")))
+                assertEquals("pago 10%_literal", rows.getString(rows.getColumnIndexOrThrow("searchDescription")))
+                assertEquals("", rows.getString(rows.getColumnIndexOrThrow("searchReason")))
+                assertEquals("PERSONAL", rows.getString(rows.getColumnIndexOrThrow("previousClassification")))
+                assertEquals("clave-v1", rows.getString(rows.getColumnIndexOrThrow("notificationKey")))
+                assertEquals("huella-v1", rows.getString(rows.getColumnIndexOrThrow("deduplicationHash")))
+            }
         }
     }
 }

@@ -1,10 +1,13 @@
 package com.lyape.data
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.lyape.domain.MovementClassification
 import com.lyape.domain.MovementSource
+import com.lyape.domain.movementTitle
+import com.lyape.domain.normalizeMovementSearch
 import java.time.Instant
 import java.util.UUID
 
@@ -16,7 +19,7 @@ import java.util.UUID
  */
 @Entity(
     tableName = "movements",
-    indices = [Index("occurredAt")],
+    indices = [Index("occurredAt"), Index(value = ["occurredAt", "createdAt", "id"])],
 )
 data class MovementEntity(
     @PrimaryKey val id: UUID,
@@ -37,4 +40,13 @@ data class MovementEntity(
     val updatedAt: Instant,
     /** Clasificación activa recordada al anular; ver `Movement.previousClassification`. */
     val previousClassification: MovementClassification?,
+    // Derivados: se reconstruyen en cada mapeo de dominio y durante la migración.
+    @ColumnInfo(defaultValue = "''")
+    val searchTitle: String = normalizeMovementSearch(movementTitle(senderName, source)),
+    @ColumnInfo(defaultValue = "''")
+    val searchDescription: String = normalizeMovementSearch(description.orEmpty()),
+    @ColumnInfo(defaultValue = "''")
+    val searchReason: String = normalizeMovementSearch(
+        if (source == MovementSource.ADJUSTMENT) adjustmentReason.orEmpty() else "",
+    ),
 )

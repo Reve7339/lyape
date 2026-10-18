@@ -22,6 +22,11 @@ REQUIRED_SCENARIOS = {
             "bdd06PersonalRestoresAsPersonal",
             "bdd07NegativeAdjustmentRequiresReason",
         },
+        "com.lyape.preferences.AppPreferencesTest": {
+            "un fallo de lectura bloquea la captura sin modificar lo guardado",
+            "datos corruptos no habilitan la captura",
+            "una nueva lectura recupera la pausa persistida tras un fallo temporal",
+        },
     },
     "android": {
         "com.lyape.acceptance.BusinessJourneyAcceptanceTest": {
@@ -42,10 +47,25 @@ REQUIRED_SCENARIOS = {
             "ui09SearchCombinesWithClassificationFilter",
             "ui10CloseAndReopenDayWithoutChangingMoney",
             "ui11PlanDialogsSaveAndConfirmGoalRemoval",
+            "ui12HistorySearchReachesBeyondFirstPage",
         },
         "com.lyape.data.PersistenceRestartIntegrationTest": {
             "file01ReopenKeepsMovementsAndMonthlyPlan",
             "file02ReopenPreferencesKeepsCapturePause",
+        },
+        "com.lyape.data.HistoryPagingIntegrationTest": {
+            "history01PagesAreBoundedStableAndComplete",
+            "history02SearchAndFilterReachRecordsBeyondFirstPage",
+            "history03SearchIsLiteralAndIncludesDescriptionsAndReasons",
+            "history04CountsAndTotalsCoverEntirePeriodNotJustPage",
+            "history05EditsInvalidatePagesAndRebuildSearch",
+            "history06ClassificationChangesInvalidateFilteredPages",
+        },
+        "com.lyape.data.AppDatabaseMigrationTest": {
+            "historyMigration04To05PreservesRowsAndBackfillsSearch",
+        },
+        "com.lyape.notification.CapturePipelineIntegrationTest": {
+            "unFalloDePreferenciasImpideGuardarUnPago",
         },
     },
 }

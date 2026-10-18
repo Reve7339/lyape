@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -32,12 +33,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lyape.preferences.CapturePreferenceState
 import com.lyape.ui.capture.captureStatus
 import com.lyape.ui.capture.color
 import com.lyape.ui.capture.hasNotificationAccess
@@ -46,6 +51,9 @@ import com.lyape.ui.components.InfoRow
 import com.lyape.ui.components.LyapeCard
 import com.lyape.ui.rememberAppPreferences
 import com.lyape.ui.theme.PillShape
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 
 @Composable
@@ -57,9 +65,18 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     val preferences = rememberAppPreferences()
     val scope = rememberCoroutineScope()
 
-    val paused by preferences.capturePaused.collectAsStateWithLifecycle(initialValue = false)
+    var retryKey by remember { mutableIntStateOf(0) }
+    val preferenceFlow = remember(preferences, retryKey) {
+        preferences.captureState
+            .map<CapturePreferenceState, CapturePreferenceState?> { it }
+            .onStart { emit(null) }
+    }
+    val preference by preferenceFlow.collectAsStateWithLifecycle(initialValue = null)
+    val paused = preference == CapturePreferenceState.PAUSED
+    var saving by remember { mutableStateOf(false) }
+    var saveFailed by remember { mutableStateOf(false) }
     var hasAccess by remember { mutableStateOf(hasNotificationAccess(context)) }
-    val capture = captureStatus(hasAccess, paused)
+    val capture = captureStatus(hasAccess, preference)
 
     // El permiso se concede en los ajustes del sistema: al volver, se vuelve a comprobar.
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -97,33 +114,77 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
 
             if (hasAccess) {
                 Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 52.dp)
-                        .toggleable(
-                            value = paused,
-                            role = Role.Switch,
-                            onValueChange = { value ->
-                                scope.launch { preferences.setCapturePaused(value) }
-                            },
-                        )
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                if (preference == CapturePreferenceState.UNAVAILABLE) {
                     Text(
-                        text = "Pausar captura",
+                        text = "No se pudo leer la configuración. Captura detenida.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                     )
-                    Spacer(Modifier.width(12.dp))
-                    // El interruptor no lleva su propio control táctil ni su propio anuncio: la fila
-                    // completa lo activa y TalkBack lee la etiqueta junto con el estado.
-                    Switch(
-                        checked = paused,
-                        onCheckedChange = null,
-                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            retryKey++
+                            saveFailed = false
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp),
+                        shape = PillShape,
+                    ) {
+                        Text("Reintentar", style = MaterialTheme.typography.labelLarge)
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 52.dp)
+                            .toggleable(
+                                value = paused,
+                                enabled = preference != null && !saving,
+                                role = Role.Switch,
+                                onValueChange = { value ->
+                                    if (!saving) {
+                                        saving = true
+                                        saveFailed = false
+                                        scope.launch {
+                                            try {
+                                                preferences.setCapturePaused(value)
+                                            } catch (error: Exception) {
+                                                if (error is CancellationException) throw error
+                                                saveFailed = true
+                                            } finally {
+                                                saving = false
+                                            }
+                                        }
+                                    }
+                                },
+                            )
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Pausar captura",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        // La fila completa es un único control con nombre y estado para TalkBack.
+                        Switch(
+                            checked = paused,
+                            onCheckedChange = null,
+                            enabled = preference != null && !saving,
+                        )
+                    }
+                    if (saveFailed) {
+                        Text(
+                            text = "No se guardó el cambio. Inténtalo otra vez.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                        )
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
@@ -174,7 +235,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "No guarda el texto de las notificaciones. " +
+                text = "Guarda monto, remitente y fecha; no la notificación completa. " +
                     "Sin cuentas, servidores ni publicidad.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

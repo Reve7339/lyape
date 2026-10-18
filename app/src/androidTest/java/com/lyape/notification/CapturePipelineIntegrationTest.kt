@@ -4,6 +4,8 @@ import android.app.Notification
 import android.os.Bundle
 import android.os.Process
 import android.service.notification.StatusBarNotification
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -12,10 +14,13 @@ import com.lyape.data.MovementRepository
 import com.lyape.domain.MovementClassification
 import com.lyape.domain.MovementSource
 import com.lyape.preferences.AppPreferences
+import com.lyape.testing.testMovements
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.After
@@ -27,6 +32,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.IOException
 import java.time.Instant
 
 /**
@@ -119,7 +125,7 @@ class CapturePipelineIntegrationTest {
 
         assertEquals(IngestResult.STORED, ingestor.ingest(input))
 
-        val stored = repository.observeAll().first()
+        val stored = repository.testMovements()
         assertEquals(1, stored.size)
         val movement = stored.single()
         assertEquals(3_500L, movement.amountCents)
@@ -136,7 +142,7 @@ class CapturePipelineIntegrationTest {
 
         assertEquals(IngestResult.STORED, ingestor.ingest(input))
         assertEquals(IngestResult.DUPLICATE, ingestor.ingest(input))
-        assertEquals(1, repository.observeAll().first().size)
+        assertEquals(1, repository.testMovements().size)
     }
 
     @Test
@@ -153,7 +159,7 @@ class CapturePipelineIntegrationTest {
 
         assertEquals(1, results.count { it == IngestResult.STORED })
         assertEquals(2, results.count { it == IngestResult.DUPLICATE })
-        assertEquals(1, repository.observeAll().first().size)
+        assertEquals(1, repository.testMovements().size)
     }
 
     @Test
@@ -161,7 +167,7 @@ class CapturePipelineIntegrationTest {
         val input = requireInput(statusBar(notification(text = "Tienes una función nueva disponible")))
 
         assertEquals(IngestResult.UNRECOGNIZED, ingestor.ingest(input))
-        assertTrue(repository.observeAll().first().isEmpty())
+        assertTrue(repository.testMovements().isEmpty())
     }
 
     @Test
@@ -170,7 +176,22 @@ class CapturePipelineIntegrationTest {
         val input = requireInput(statusBar(notification(text = "María Rojas te pagó S/ 35.00")))
 
         assertEquals(IngestResult.PAUSED, ingestor.ingest(input))
-        assertTrue(repository.observeAll().first().isEmpty())
+        assertTrue(repository.testMovements().isEmpty())
+    }
+
+    @Test
+    fun unFalloDePreferenciasImpideGuardarUnPago() = runBlocking {
+        val failingStore = object : DataStore<Preferences> {
+            override val data: Flow<Preferences> = flow { throw IOException("fallo simulado") }
+
+            override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences =
+                error("La captura no debe escribir preferencias")
+        }
+        val blockedIngestor = NotificationIngestor(repository, AppPreferences(failingStore))
+        val input = requireInput(statusBar(notification(text = "María Rojas te pagó S/ 35.00")))
+
+        assertEquals(IngestResult.PAUSED, blockedIngestor.ingest(input))
+        assertTrue(repository.testMovements().isEmpty())
     }
 
     @Test
@@ -180,7 +201,7 @@ class CapturePipelineIntegrationTest {
 
         assertEquals(IngestResult.STORED, ingestor.ingest(first))
         assertEquals(IngestResult.DUPLICATE, ingestor.ingest(second))
-        assertEquals(1, repository.observeAll().first().size)
+        assertEquals(1, repository.testMovements().size)
     }
 
     @Test
@@ -194,7 +215,7 @@ class CapturePipelineIntegrationTest {
 
         assertEquals(IngestResult.STORED, ingestor.ingest(first))
         assertEquals(IngestResult.STORED, ingestor.ingest(second))
-        assertEquals(2, repository.observeAll().first().size)
+        assertEquals(2, repository.testMovements().size)
     }
 
     @Test
@@ -205,7 +226,7 @@ class CapturePipelineIntegrationTest {
 
         assertEquals(IngestResult.STORED, ingestor.ingest(first))
         assertEquals(IngestResult.STORED, ingestor.ingest(second))
-        assertEquals(2, repository.observeAll().first().size)
+        assertEquals(2, repository.testMovements().size)
     }
 
     @Test
@@ -215,7 +236,7 @@ class CapturePipelineIntegrationTest {
 
         assertEquals(IngestResult.STORED, ingestor.ingest(first))
         assertEquals(IngestResult.DUPLICATE, ingestor.ingest(second))
-        assertEquals(1, repository.observeAll().first().size)
+        assertEquals(1, repository.testMovements().size)
     }
 
     @Test
@@ -225,7 +246,7 @@ class CapturePipelineIntegrationTest {
 
         assertEquals(IngestResult.STORED, ingestor.ingest(first))
         assertEquals(IngestResult.DUPLICATE, ingestor.ingest(second))
-        assertEquals(1, repository.observeAll().first().size)
+        assertEquals(1, repository.testMovements().size)
     }
 
     private fun input(

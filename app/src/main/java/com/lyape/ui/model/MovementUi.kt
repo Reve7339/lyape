@@ -3,6 +3,7 @@ package com.lyape.ui.model
 import com.lyape.domain.Movement
 import com.lyape.domain.MovementClassification
 import com.lyape.domain.MovementSource
+import com.lyape.domain.movementTitle
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -38,7 +39,7 @@ fun Movement.toUi(zone: ZoneId = ZoneId.systemDefault()): MovementUi {
     val timeLabel = TIME_FORMATTER.format(localDateTime).lowercase(Locale.ROOT)
     return MovementUi(
         id = id.toString(),
-        title = titleFor(senderName, source),
+        title = movementTitle(senderName, source),
         amountCents = amountCents,
         classification = classification,
         originLabel = sourceLabel(source),
@@ -66,16 +67,6 @@ fun classificationLabel(classification: MovementClassification): String = when (
     MovementClassification.BUSINESS -> "Negocio"
     MovementClassification.PERSONAL -> "Personal"
     MovementClassification.EXCLUDED -> "Anulado"
-}
-
-private fun titleFor(senderName: String?, source: MovementSource): String {
-    val name = senderName?.trim().orEmpty()
-    if (name.isNotEmpty()) return name
-    return when (source) {
-        MovementSource.NOTIFICATION -> "Pago sin nombre"
-        MovementSource.MANUAL -> "Venta agregada"
-        MovementSource.ADJUSTMENT -> "Ajuste"
-    }
 }
 
 private fun avatarLabelFor(senderName: String?): String {

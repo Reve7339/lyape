@@ -2,6 +2,9 @@ package com.lyape.data
 
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.lyape.domain.MovementSource
+import com.lyape.domain.movementTitle
+import com.lyape.domain.normalizeMovementSearch
 
 /**
  * Migración 1 → 2: agrega `previousClassification`, la clasificación activa que un movimiento
@@ -78,5 +81,32 @@ val MIGRATION_3_4: Migration = object : Migration(3, 4) {
             "INSERT OR IGNORE INTO goal_settings (id, mode, fixedAmountCents) " +
                 "VALUES (0, 'BY_MONTH', NULL)",
         )
+    }
+}
+
+/** 4 → 5: derivados para buscar sin tildes y orden estable del historial. No borra pagos. */
+val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        for (column in listOf("searchTitle", "searchDescription", "searchReason")) {
+            db.execSQL("ALTER TABLE movements ADD COLUMN $column TEXT NOT NULL DEFAULT ''")
+        }
+        // Un cursor + una sentencia: no se construye una lista con todos los movimientos.
+        db.compileStatement(
+            "UPDATE movements SET searchTitle = ?, searchDescription = ?, searchReason = ? WHERE id = ?",
+        ).use { update ->
+            db.query("SELECT id, senderName, source, description, adjustmentReason FROM movements").use { rows ->
+                while (rows.moveToNext()) {
+                    val source = MovementSource.valueOf(rows.getString(2))
+                    update.bindString(1, normalizeMovementSearch(movementTitle(rows.getString(1), source)))
+                    update.bindString(2, normalizeMovementSearch(rows.getString(3).orEmpty()))
+                    update.bindString(3, normalizeMovementSearch(
+                        if (source == MovementSource.ADJUSTMENT) rows.getString(4).orEmpty() else "",
+                    ))
+                    update.bindString(4, rows.getString(0))
+                    update.executeUpdateDelete()
+                }
+            }
+        }
+        db.execSQL("CREATE INDEX index_movements_occurredAt_createdAt_id ON movements (occurredAt, createdAt, id)")
     }
 }

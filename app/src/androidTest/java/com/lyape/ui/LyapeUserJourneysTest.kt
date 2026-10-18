@@ -26,7 +26,9 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.lyape.MainActivity
 import com.lyape.domain.MovementClassification
 import com.lyape.domain.MovementSource
+import com.lyape.domain.MovementFactory
 import com.lyape.testing.IsolatedTestApplication
+import com.lyape.testing.testMovements
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -41,6 +43,7 @@ import org.junit.runner.RunWith
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /** Pantallas reales y repositorios reales; los datos pertenecen solo a esta instrumentación. */
@@ -205,6 +208,10 @@ class LyapeUserJourneysTest {
         waitText("María Personal")
         compose.onNodeWithText("Otra venta").assertDoesNotExist()
         compose.onNodeWithText("Personal 1").performClick()
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText("María Negocio").fetchSemanticsNodes().isEmpty()
+        }
+        waitText("María Personal")
         compose.onNodeWithText("María Personal").assertExists()
         compose.onNodeWithText("María Negocio").assertDoesNotExist()
         replace("Buscar por remitente, descripción o motivo", "nadie-coincide")
@@ -258,12 +265,35 @@ class LyapeUserJourneysTest {
         assertTrue(records().isEmpty())
     }
 
+    @Test
+    fun ui12HistorySearchReachesBeyondFirstPage() {
+        val at = LocalDate.now().atTime(12, 0).atZone(ZoneId.systemDefault()).toInstant()
+        runBlocking {
+            app.movementRepository.addAll((1..200).map { i ->
+                MovementFactory.manual(
+                    id = UUID(0, i.toLong()), amountCents = 100,
+                    occurredAt = at.minusSeconds(i.toLong()), now = at,
+                    label = if (i == 200) "María antigua" else "Venta $i",
+                )
+            })
+        }
+        tab("Movimientos")
+        waitText("Todos 200")
+        waitText("Venta 1")
+        compose.onNodeWithText("María antigua").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Buscar movimientos").performClick()
+        replace("Buscar por remitente, descripción o motivo", "maria")
+        waitText("María antigua")
+        compose.onNodeWithText("Todos 200").assertExists()
+        compose.onNodeWithText("Venta 1").assertDoesNotExist()
+    }
+
     private fun resetData() = runBlocking(Dispatchers.IO) {
         app.database.clearAllTables()
         app.preferences.setCapturePaused(false)
     }
 
-    private fun records() = runBlocking { app.movementRepository.observeAll().first() }
+    private fun records() = runBlocking { app.movementRepository.testMovements() }
     private fun currentPlan() = runBlocking { app.monthlyPlanRepository.observePlan(YearMonth.now()).first() }
 
     private fun seed(

@@ -22,7 +22,7 @@ enum class IngestResult {
     /** Formato no reconocido: no altera nada. */
     UNRECOGNIZED,
 
-    /** La captura está pausada por el usuario. */
+    /** Captura pausada por el usuario o bloqueada porque no se puede leer su preferencia. */
     PAUSED,
 }
 

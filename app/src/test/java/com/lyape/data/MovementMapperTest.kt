@@ -44,4 +44,22 @@ class MovementMapperTest {
     fun `el viaje de ida y vuelta conserva el movimiento`() {
         assertEquals(movement, movement.toEntity().toDomain())
     }
+
+    @Test
+    fun `los campos de busqueda derivan del movimiento sin alterar el texto original`() {
+        val entity = movement.toEntity()
+        assertEquals("ajuste", entity.searchTitle)
+        assertEquals("correccion", entity.searchDescription)
+        assertEquals("devolucion", entity.searchReason)
+        assertEquals("Corrección", entity.description)
+    }
+
+    @Test
+    fun `editar recalcula los derivados y el nombre se comparte con la interfaz`() {
+        val edited = movement.copy(senderName = "  MARÍA Ñúñez ", description = "10%_descuento")
+        val entity = edited.toEntity()
+        assertEquals("maria nunez", entity.searchTitle)
+        assertEquals("10%_descuento", entity.searchDescription)
+        assertEquals("devolucion", entity.searchReason)
+    }
 }

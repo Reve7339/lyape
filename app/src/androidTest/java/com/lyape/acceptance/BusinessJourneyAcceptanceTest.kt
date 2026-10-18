@@ -15,6 +15,7 @@ import com.lyape.notification.NotificationIngestor
 import com.lyape.notification.NotificationInput
 import com.lyape.notification.YapePackage
 import com.lyape.preferences.AppPreferences
+import com.lyape.testing.testMovements
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -73,11 +74,11 @@ class BusinessJourneyAcceptanceTest {
         preferences.setCapturePaused(true)
         val next = input("pago-2", now.plusSeconds(60))
         assertEquals(IngestResult.PAUSED, ingestor.ingest(next))
-        assertEquals(1, movements.observeAll().first().size)
+        assertEquals(1, movements.testMovements().size)
         preferences.setCapturePaused(false)
         assertEquals(IngestResult.STORED, ingestor.ingest(next))
         // Entonces hay exactamente dos pagos, incluso si su remitente y monto coinciden.
-        val stored = movements.observeAll().first()
+        val stored = movements.testMovements()
         assertEquals(2, stored.size)
         assertEquals(7_000L, movements.totalsInRange(DateRange.day(date)).businessCents)
         assertTrue(stored.all { it.senderName == "Cliente Prueba" && !it.reviewed })
@@ -87,7 +88,7 @@ class BusinessJourneyAcceptanceTest {
     fun bdd09ReconciliationCloseAndReopenKeepIncome() = runBlocking {
         // Dado un pago capturado S/ 35, uno manual S/ 50 y una devolución S/ 5.
         assertEquals(IngestResult.STORED, ingestor.ingest(input("pago-3", now)))
-        val captured = movements.observeAll().first().single()
+        val captured = movements.testMovements().single()
         val manual = movements.addManual(5_000, now, "Venta")
         movements.addAdjustment(-500, now, "Devolución")
         // Cuando separo el pago personal, anulo/restauro la venta y cierro/reabro el día.
@@ -129,7 +130,7 @@ class BusinessJourneyAcceptanceTest {
             plan.expenses.single { it.schedule == ExpenseSchedule.ANNUAL_FIXED }.amountCents
         })
         // Un gasto planificado nunca se convierte en movimiento de dinero.
-        assertTrue(movements.observeAll().first().isEmpty())
+        assertTrue(movements.testMovements().isEmpty())
     }
 
     @Test

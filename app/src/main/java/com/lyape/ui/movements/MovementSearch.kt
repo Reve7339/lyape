@@ -1,10 +1,7 @@
 package com.lyape.ui.movements
 
 import com.lyape.ui.model.MovementUi
-import java.text.Normalizer
-import java.util.Locale
-
-private val COMBINING_MARKS = Regex("\\p{Mn}+")
+import com.lyape.domain.normalizeMovementSearch
 
 /**
  * Normaliza texto para buscar sin distinguir mayúsculas ni tildes.
@@ -13,10 +10,7 @@ private val COMBINING_MARKS = Regex("\\p{Mn}+")
  * función pura: no toca Android ni el estado de la interfaz.
  */
 fun normalizeForSearch(value: String): String =
-    Normalizer.normalize(value, Normalizer.Form.NFD)
-        .replace(COMBINING_MARKS, "")
-        .lowercase(Locale.ROOT)
-        .trim()
+    normalizeMovementSearch(value)
 
 /**
  * Campos por los que se puede buscar un movimiento: remitente o nombre, descripción y motivo de

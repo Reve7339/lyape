@@ -5,6 +5,9 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.paging.PagingSource
+import com.lyape.domain.MovementClassification
+import com.lyape.domain.MovementCounts
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
@@ -18,8 +21,28 @@ import java.util.UUID
 @Dao
 interface MovementDao {
 
-    @Query("SELECT * FROM movements ORDER BY occurredAt DESC, createdAt DESC")
-    fun observeAll(): Flow<List<MovementEntity>>
+    // Room añade LIMIT/OFFSET: cada carga materializa solo la página solicitada.
+    @Query(
+        """
+        SELECT * FROM movements
+        WHERE (:classification IS NULL OR classification = :classification)
+          AND (:query = '' OR instr(searchTitle, :query) > 0
+               OR instr(searchDescription, :query) > 0 OR instr(searchReason, :query) > 0)
+        ORDER BY occurredAt DESC, createdAt DESC, id DESC
+        """,
+    )
+    fun pageHistory(classification: MovementClassification?, query: String): PagingSource<Int, MovementEntity>
+
+    @Query(
+        """
+        SELECT COUNT(*) AS total,
+               COUNT(CASE WHEN classification = 'BUSINESS' THEN 1 END) AS business,
+               COUNT(CASE WHEN classification = 'PERSONAL' THEN 1 END) AS personal,
+               COUNT(CASE WHEN classification = 'EXCLUDED' THEN 1 END) AS excluded
+        FROM movements
+        """,
+    )
+    fun observeCounts(): Flow<MovementCounts>
 
     @Query(
         """

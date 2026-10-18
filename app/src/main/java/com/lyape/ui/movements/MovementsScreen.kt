@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -54,23 +53,30 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.paging.LoadState
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
 import com.lyape.domain.MovementClassification
+import com.lyape.domain.MovementCounts
 import com.lyape.ui.components.LyapeCard
 import com.lyape.ui.components.MovementRow
 import com.lyape.ui.model.MovementUi
 import com.lyape.ui.theme.PillShape
 import kotlinx.coroutines.flow.first
 
-internal enum class MovementFilter(val label: String) {
-    ALL("Todos"),
-    BUSINESS("Negocio"),
-    PERSONAL("Personal"),
-    EXCLUDED("Anulado"),
+internal enum class MovementFilter(val label: String, val classification: MovementClassification?) {
+    ALL("Todos", null),
+    BUSINESS("Negocio", MovementClassification.BUSINESS),
+    PERSONAL("Personal", MovementClassification.PERSONAL),
+    EXCLUDED("Anulado", MovementClassification.EXCLUDED),
 }
 
-/** Conteos por filtro calculados una sola vez por actualización de la lista. */
-internal fun filterCounts(movements: List<MovementUi>): Map<MovementFilter, Int> =
-    MovementFilter.entries.associateWith { option -> movements.count { it.matches(option) } }
+internal fun MovementCounts.filterCounts(): Map<MovementFilter, Int> = mapOf(
+    MovementFilter.ALL to total,
+    MovementFilter.BUSINESS to business,
+    MovementFilter.PERSONAL to personal,
+    MovementFilter.EXCLUDED to excluded,
+)
 
 @Composable
 fun MovementsScreen(
@@ -84,18 +90,24 @@ fun MovementsScreen(
 ) {
     var filter by rememberSaveable { mutableStateOf(MovementFilter.ALL) }
     var retryKey by remember { mutableIntStateOf(0) }
-    val state by remember(viewModel, retryKey) { viewModel.state }
-        .collectAsStateWithLifecycle(initialValue = MovementsUiState.Loading)
-
-    val movements: List<MovementUi> = (state as? MovementsUiState.Content)?.movements.orEmpty()
+    val countsState by remember(viewModel, retryKey) { viewModel.counts }
+        .collectAsStateWithLifecycle(initialValue = MovementCountsState.Loading)
+    val movements = viewModel.movements.collectAsLazyPagingItems()
     val normalizedQuery = remember(searchQuery) { normalizeForSearch(searchQuery) }
-    val counts = remember(movements) { filterCounts(movements) }
-    val filtered = remember(movements, filter, normalizedQuery) {
-        movements.filter { it.matches(filter) && it.matchesSearch(normalizedQuery) }
+    val totals = (countsState as? MovementCountsState.Content)?.counts ?: MovementCounts()
+    val counts = remember(totals) { totals.filterCounts() }
+    val retry = {
+        retryKey += 1
+        movements.retry()
     }
     val listState = rememberLazyListState()
     val searchFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(filter, normalizedQuery) {
+        viewModel.updateQuery(filter.classification, normalizedQuery)
+        listState.scrollToItem(0)
+    }
 
     LaunchedEffect(searchActive) {
         if (searchActive) {
@@ -149,18 +161,49 @@ fun MovementsScreen(
 
             item(key = "gap") { Spacer(Modifier.height(16.dp)) }
 
-            when (state) {
-                MovementsUiState.Loading -> item(key = "loading") {
-                    LyapeCard(contentPadding = PaddingValues(0.dp)) { LoadingMessage() }
-                }
-
-                MovementsUiState.Error -> item(key = "error") {
-                    LyapeCard(contentPadding = PaddingValues(0.dp)) {
-                        ErrorMessage(onRetry = { retryKey += 1 })
+            when {
+                movements.itemCount > 0 -> {
+                    if (movements.loadState.prepend is LoadState.Loading) {
+                        item(key = "prepend-loading") { LoadingMessage() }
+                    } else if (movements.loadState.prepend is LoadState.Error) {
+                        item(key = "prepend-error") { ErrorMessage(onRetry = retry) }
+                    }
+                    items(
+                        count = movements.itemCount,
+                        key = movements.itemKey { it.id },
+                    ) { index ->
+                        movements[index]?.let { movement ->
+                            MovementListItem(
+                                movement = movement,
+                                isFirst = index == 0,
+                                isLast = index == movements.itemCount - 1,
+                                onClick = { onOpenMovement(movement.id) },
+                            )
+                        }
+                    }
+                    // Si falla otra página, se conservan visibles las filas ya cargadas.
+                    when {
+                        movements.loadState.append is LoadState.Error ||
+                            movements.loadState.refresh is LoadState.Error ||
+                            countsState is MovementCountsState.Error ->
+                            item(key = "append-error") { ErrorMessage(onRetry = retry) }
+                        movements.loadState.append is LoadState.Loading ||
+                            movements.loadState.refresh is LoadState.Loading ->
+                            item(key = "append-loading") { LoadingMessage() }
                     }
                 }
 
-                MovementsUiState.Empty -> item(key = "empty") {
+                movements.loadState.refresh is LoadState.Error || countsState is MovementCountsState.Error ->
+                    item(key = "error") {
+                        LyapeCard(contentPadding = PaddingValues(0.dp)) { ErrorMessage(onRetry = retry) }
+                    }
+
+                movements.loadState.refresh is LoadState.Loading || countsState is MovementCountsState.Loading ->
+                    item(key = "loading") {
+                        LyapeCard(contentPadding = PaddingValues(0.dp)) { LoadingMessage() }
+                    }
+
+                totals.total == 0 -> item(key = "empty") {
                     LyapeCard(contentPadding = PaddingValues(0.dp)) {
                         Message(
                             "Todavía no hay movimientos. Activa el acceso a las notificaciones "
@@ -169,29 +212,15 @@ fun MovementsScreen(
                     }
                 }
 
-                is MovementsUiState.Content -> when {
-                    filtered.isNotEmpty() -> itemsIndexed(
-                        items = filtered,
-                        key = { _, movement -> movement.id },
-                    ) { index, movement ->
-                        MovementListItem(
-                            movement = movement,
-                            isFirst = index == 0,
-                            isLast = index == filtered.lastIndex,
-                            onClick = { onOpenMovement(movement.id) },
-                        )
+                normalizedQuery.isNotEmpty() -> item(key = "no-results") {
+                    LyapeCard(contentPadding = PaddingValues(0.dp)) {
+                        Message("No encontramos movimientos que coincidan con tu búsqueda.")
                     }
+                }
 
-                    normalizedQuery.isNotEmpty() -> item(key = "no-results") {
-                        LyapeCard(contentPadding = PaddingValues(0.dp)) {
-                            Message("No encontramos movimientos que coincidan con tu búsqueda.")
-                        }
-                    }
-
-                    else -> item(key = "no-filter-match") {
-                        LyapeCard(contentPadding = PaddingValues(0.dp)) {
-                            Message("No hay movimientos para este filtro.")
-                        }
+                else -> item(key = "no-filter-match") {
+                    LyapeCard(contentPadding = PaddingValues(0.dp)) {
+                        Message("No hay movimientos para este filtro.")
                     }
                 }
             }
@@ -344,11 +373,4 @@ private fun ErrorMessage(onRetry: () -> Unit) {
             Text("Reintentar")
         }
     }
-}
-
-internal fun MovementUi.matches(filter: MovementFilter): Boolean = when (filter) {
-    MovementFilter.ALL -> true
-    MovementFilter.BUSINESS -> classification == MovementClassification.BUSINESS
-    MovementFilter.PERSONAL -> classification == MovementClassification.PERSONAL
-    MovementFilter.EXCLUDED -> classification == MovementClassification.EXCLUDED
 }

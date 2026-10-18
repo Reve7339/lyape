@@ -5,13 +5,15 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "lyape_preferences")
+
+enum class CapturePreferenceState { ACTIVE, PAUSED, UNAVAILABLE }
 
 /**
  * Preferencias locales mínimas de LYape.
@@ -23,10 +25,19 @@ class AppPreferences(private val dataStore: DataStore<Preferences>) {
 
     constructor(context: Context) : this(context.applicationContext.dataStore)
 
-    /** `true` cuando el usuario pausó la captura desde Ajustes. */
-    val capturePaused: Flow<Boolean> = dataStore.data
-        .catch { emit(emptyPreferences()) }
-        .map { preferences -> preferences[CAPTURE_PAUSED] ?: false }
+    /** Una lectura fallida no equivale a una instalación nueva ni modifica lo persistido. */
+    val captureState: Flow<CapturePreferenceState> = dataStore.data
+        .map { preferences ->
+            if (preferences[CAPTURE_PAUSED] == true) CapturePreferenceState.PAUSED
+            else CapturePreferenceState.ACTIVE
+        }
+        .catch { error ->
+            if (error is CancellationException || error !is Exception) throw error
+            emit(CapturePreferenceState.UNAVAILABLE)
+        }
+
+    /** La captura también se bloquea si no se puede comprobar la preferencia. */
+    val capturePaused: Flow<Boolean> = captureState.map { it != CapturePreferenceState.ACTIVE }
 
     suspend fun setCapturePaused(paused: Boolean) {
         dataStore.edit { preferences -> preferences[CAPTURE_PAUSED] = paused }
