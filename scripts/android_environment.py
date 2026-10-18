@@ -42,6 +42,25 @@ def install_packages(manager, sdk, required):
     subprocess.run([str(manager), f'--sdk_root={sdk}', *required], check=True)
 
 
+def jdk_problems(java_home, java_executable):
+    """An IDE runtime with javac is not necessarily a complete Android JDK."""
+    if not java_home:
+        return ['JAVA_HOME is missing; run through mise']
+    home = Path(java_home).resolve()
+    problems = []
+    for tool in ('java', 'javac', 'jar', 'jlink', 'jmod'):
+        executable = home / 'bin' / tool
+        if not executable.is_file() or not os.access(executable, os.X_OK):
+            problems.append(f'Full JDK required: missing executable {executable}')
+    if not (home / 'jmods' / 'java.base.jmod').is_file():
+        problems.append(f'Full JDK required: missing {home / "jmods/java.base.jmod"}')
+    if not java_executable:
+        problems.append('java is missing from PATH')
+    elif Path(java_executable).resolve() != (home / 'bin/java').resolve():
+        problems.append('java on PATH does not match JAVA_HOME; run through mise')
+    return problems
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--install', action='store_true')
@@ -59,6 +78,12 @@ def main():
         parser.error('GRADLE_USER_HOME must be project-local; run through mise')
     manifest = ROOT / 'android-sdk.packages'
     required = packages(manifest)
+    problems = jdk_problems(os.environ.get('JAVA_HOME'), shutil.which('java'))
+    if problems:
+        print('\n'.join(problems), file=sys.stderr)
+        print('Install a complete JDK, not an IDE runtime; then rerun mise run env:check.',
+              file=sys.stderr)
+        return 1
     if args.install:
         manager = sdk / 'cmdline-tools' / 'latest' / 'bin' / 'sdkmanager'
         if not manager.is_file():

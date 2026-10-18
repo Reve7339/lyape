@@ -19,6 +19,11 @@ mise run env:check
 licencias cuando corresponda y actualiza el archivo ignorado `local.properties`.
 `android:configure` solo actualiza rutas; `env:check` no compila ni toca dispositivos.
 
+El JDK debe ser completo: el chequeo requiere java, javac, jar, jlink, jmod y
+jmods/java.base.jmod, y que JAVA_HOME coincida con el Java de PATH. Un runtime
+recortado de un editor no cumple aunque incluya javac. Las pruebas del chequeo
+se ejecutan con `python3 scripts/test_android_environment.py`, sin Gradle.
+
 Para Gradle conserva siempre la proteccion conjunta de memoria de 4 GiB:
 
 ```sh
