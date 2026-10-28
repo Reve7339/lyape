@@ -52,6 +52,14 @@ data class Movement(
      * siempre negocio. Es `null` mientras el movimiento no está anulado.
      */
     val previousClassification: MovementClassification? = null,
+    /** Cuenta de destino; null conserva los movimientos cuyo medio todavía no se conoce. */
+    val accountId: String? = null,
+    /** Medio de pago; [PaymentMedium.UNKNOWN] cuando no se puede inferir con seguridad. */
+    val medium: PaymentMedium = PaymentMedium.UNKNOWN,
+    /** Revisión de las ediciones conciliables; se incrementa dentro de la transacción de guardado. */
+    val editVersion: Long = 0L,
+    /** Identidad de la última edición aplicada, para reconocer un reenvío ya confirmado. */
+    val lastEditAttemptId: UUID? = null,
 ) {
     /** Solo los movimientos activos del negocio participan en los totales. */
     val participatesInTotals: Boolean

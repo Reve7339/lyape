@@ -4,7 +4,8 @@ Registro local de pagos de Yape para negocios. Android 8.0 o superior.
 
 - Ingresos diarios, semanales y mensuales con gráficos.
 - Pagos de negocio o personales, registro manual y ajustes.
-- Cierre diario, gastos recurrentes y metas de ingresos.
+- Gastos recurrentes y metas de ingresos o ganancia.
+- Saldos por cuenta y avisos de voz opcionales.
 
 Los datos se guardan en el teléfono, sin respaldo automático. Concede acceso a notificaciones
 desde Ajustes. No recupera pagos no detectados ni captura con el teléfono apagado o tras
@@ -12,7 +13,13 @@ forzar su detención.
 
 Solo los movimientos de negocio cuentan en los totales; los ajustes negativos restan.
 
-Pendiente: registrar pagos de Plin desde notificaciones.
+En desarrollo (0.0.2, aún sin publicar): captura provisional de Plin de Interbank. Existe una
+captura real aportada por el usuario y una transcripción anonimizada usada como fixture; el
+paquete está confirmado en el dispositivo. El usuario informó que captura y voz funcionaron con
+Plin y Yape en pruebas anteriores, incluso al retirar LYape de recientes. Esa evidencia no valida
+este APK ni los extras, agrupaciones, actualizaciones o todos los formatos posibles. El registro
+de Plin es local: no crea ni consulta una cuenta bancaria y las capturas nuevas se guardan en el
+registro local de Plin.
 
 ## Desarrollo
 

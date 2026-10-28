@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.lyape.domain.MovementClassification
 import com.lyape.domain.MovementSource
+import com.lyape.domain.PaymentMedium
 import com.lyape.domain.ExpenseSchedule
 import com.lyape.domain.GoalMode
 import kotlinx.coroutines.flow.first
@@ -13,6 +14,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -53,6 +55,53 @@ class AppDatabaseMigrationTest {
 
     private var database: AppDatabase? = null
 
+    @Test fun migrar7a8ConservaAmbasMetasComoIngresos() {
+        helper.createDatabase(TEST_DB, 7).use { db ->
+            db.execSQL("INSERT INTO monthly_goals(month, amountCents) VALUES('2026-10', 50000)")
+            db.execSQL("INSERT INTO goal_settings(id, mode, fixedAmountCents) VALUES(0, 'FIXED_MONTHLY', 90000)")
+        }
+        helper.runMigrationsAndValidate(TEST_DB, 8, true, MIGRATION_7_8).use { db ->
+            db.query("SELECT amountCents, type FROM monthly_goals").use {
+                assertTrue(it.moveToFirst()); assertEquals(50000L, it.getLong(0)); assertEquals("INCOME", it.getString(1))
+            }
+            db.query("SELECT mode, fixedAmountCents, fixedType FROM goal_settings").use {
+                assertTrue(it.moveToFirst()); assertEquals("FIXED_MONTHLY", it.getString(0))
+                assertEquals(90000L, it.getLong(1)); assertEquals("INCOME", it.getString(2))
+            }
+        }
+    }
+
+    @Test
+    fun migrar8a9AgregaRevisionSinAlterarMovimientosExistentes() {
+        helper.createDatabase(TEST_DB, 8).use { v8 ->
+            v8.execSQL(
+                """
+                INSERT INTO movements (
+                    id, amountCents, currency, occurredAt, capturedAt, source, classification,
+                    reviewed, senderName, description, adjustmentReason, notificationKey,
+                    deduplicationHash, isEdited, createdAt, updatedAt, previousClassification,
+                    searchTitle, searchDescription, searchReason, accountId, medium
+                ) VALUES (
+                    '11111111-2222-3333-4444-555555555555', 128450, 'PEN', 1000, 2000,
+                    'NOTIFICATION', 'BUSINESS', 0, 'Cliente real', NULL, NULL, 'clave-v8',
+                    'huella-v8', 0, 3000, 4000, NULL, 'cliente real', '', '', 'yape', 'YAPE'
+                )
+                """.trimIndent(),
+            )
+        }
+
+        helper.runMigrationsAndValidate(TEST_DB, 9, true, MIGRATION_8_9).use { migrated ->
+            migrated.query("SELECT * FROM movements").use { rows ->
+                assertEquals(1, rows.count)
+                rows.moveToFirst()
+                assertEquals(128_450L, rows.getLong(rows.getColumnIndexOrThrow("amountCents")))
+                assertEquals(0L, rows.getLong(rows.getColumnIndexOrThrow("editVersion")))
+                assertTrue(rows.isNull(rows.getColumnIndexOrThrow("lastEditAttemptId")))
+                assertEquals("clave-v8", rows.getString(rows.getColumnIndexOrThrow("notificationKey")))
+            }
+        }
+    }
+
     @After
     fun tearDown() {
         database?.close()
@@ -67,7 +116,16 @@ class AppDatabaseMigrationTest {
 
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         database = Room.databaseBuilder(context, AppDatabase::class.java, TEST_DB)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(
+                MIGRATION_1_2,
+                MIGRATION_2_3,
+                MIGRATION_3_4,
+                MIGRATION_4_5,
+                MIGRATION_5_6,
+                MIGRATION_6_7,
+                MIGRATION_7_8,
+                MIGRATION_8_9,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -79,6 +137,7 @@ class AppDatabaseMigrationTest {
             assertEquals(128_450L, row.amountCents)
             assertEquals("PEN", row.currency)
             assertEquals(MovementSource.NOTIFICATION, row.source)
+            assertEquals(PaymentMedium.YAPE, row.medium)
             assertEquals(MovementClassification.BUSINESS, row.classification)
             assertEquals("Cliente real", row.senderName)
             assertEquals("clave-v1", row.notificationKey)
@@ -113,7 +172,7 @@ class AppDatabaseMigrationTest {
 
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         database = Room.databaseBuilder(context, AppDatabase::class.java, TEST_DB)
-            .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
             .allowMainThreadQueries()
             .build()
 
@@ -144,7 +203,7 @@ class AppDatabaseMigrationTest {
 
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         database = Room.databaseBuilder(context, AppDatabase::class.java, TEST_DB)
-            .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
             .allowMainThreadQueries()
             .build()
 
@@ -189,6 +248,87 @@ class AppDatabaseMigrationTest {
                 assertEquals("PERSONAL", rows.getString(rows.getColumnIndexOrThrow("previousClassification")))
                 assertEquals("clave-v1", rows.getString(rows.getColumnIndexOrThrow("notificationKey")))
                 assertEquals("huella-v1", rows.getString(rows.getColumnIndexOrThrow("deduplicationHash")))
+            }
+        }
+    }
+
+    @Test
+    fun captureMigration06To07SeparatesMediumAndAssociatesYape() {
+        helper.createDatabase(TEST_DB, 6).use { v6 ->
+            v6.execSQL(
+                """
+                INSERT INTO movements (
+                    id, amountCents, currency, occurredAt, capturedAt, source, classification,
+                    reviewed, isEdited, createdAt, updatedAt, accountId
+                ) VALUES
+                    ('11111111-2222-3333-4444-555555555551', 100, 'PEN', 1000, 1000,
+                     'NOTIFICATION', 'BUSINESS', 0, 0, 1000, 1000, 'yape'),
+                    ('11111111-2222-3333-4444-555555555552', 200, 'PEN', 2000, 2000,
+                     'MANUAL', 'BUSINESS', 0, 0, 2000, 2000, NULL),
+                    ('11111111-2222-3333-4444-555555555553', -50, 'PEN', 3000, 3000,
+                     'ADJUSTMENT', 'BUSINESS', 0, 0, 3000, 3000, NULL)
+                """.trimIndent(),
+            )
+            v6.execSQL(
+                "INSERT INTO monthly_expenses (id, month, name, amountCents) " +
+                    "VALUES ('11111111-2222-3333-4444-555555555554', '2026-10', 'Luz', 15000)",
+            )
+        }
+
+        helper.runMigrationsAndValidate(TEST_DB, 7, true, MIGRATION_6_7).use { migrated ->
+            migrated.query(
+                "SELECT id, medium, accountId FROM movements ORDER BY occurredAt",
+            ).use { rows ->
+                assertEquals(3, rows.count)
+                rows.moveToFirst()
+                assertEquals("YAPE", rows.getString(rows.getColumnIndexOrThrow("medium")))
+                assertEquals("yape", rows.getString(rows.getColumnIndexOrThrow("accountId")))
+                rows.moveToNext()
+                assertEquals("UNKNOWN", rows.getString(rows.getColumnIndexOrThrow("medium")))
+                assertTrue(rows.isNull(rows.getColumnIndexOrThrow("accountId")))
+                rows.moveToNext()
+                assertEquals("UNKNOWN", rows.getString(rows.getColumnIndexOrThrow("medium")))
+                assertTrue(rows.isNull(rows.getColumnIndexOrThrow("accountId")))
+            }
+            migrated.query("SELECT provider, accountId FROM capture_accounts").use { rows ->
+                assertEquals(1, rows.count)
+                rows.moveToFirst()
+                assertEquals("YAPE", rows.getString(0))
+                assertEquals("yape", rows.getString(1))
+            }
+            migrated.query("SELECT amountCents FROM monthly_expenses").use { rows ->
+                assertEquals(1, rows.count)
+                rows.moveToFirst()
+                assertEquals(15000L, rows.getLong(0))
+            }
+        }
+    }
+
+    @Test
+    fun accountsMigration05To06PreservesHistoryWithoutInventingBalances() {
+        helper.createDatabase(TEST_DB, 5).use { v5 ->
+            v5.execSQL(INSERT_V1_ROW)
+            v5.execSQL("INSERT INTO monthly_expenses (id,month,name,amountCents) VALUES ('11111111-2222-3333-4444-555555555555','2026-10','Luz',15000)")
+        }
+        helper.runMigrationsAndValidate(TEST_DB, 6, true, MIGRATION_5_6).use { migrated ->
+            migrated.query("SELECT amountCents, accountId, notificationKey FROM movements").use { rows ->
+                assertEquals(1, rows.count)
+                rows.moveToFirst()
+                assertEquals(128450L, rows.getLong(0))
+                assertEquals("yape", rows.getString(1))
+                assertEquals("clave-v1", rows.getString(2))
+            }
+            migrated.query("SELECT baselineAt, baselineBusinessCents, baselinePersonalCents FROM cash_accounts").use { rows ->
+                assertEquals(2, rows.count)
+                while (rows.moveToNext()) {
+                    org.junit.Assert.assertTrue(rows.isNull(0))
+                    assertEquals(0L, rows.getLong(1))
+                    assertEquals(0L, rows.getLong(2))
+                }
+            }
+            migrated.query("SELECT amountCents FROM monthly_expenses").use { rows ->
+                rows.moveToFirst()
+                assertEquals(15000L, rows.getLong(0))
             }
         }
     }

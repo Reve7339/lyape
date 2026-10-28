@@ -22,6 +22,19 @@ import java.util.UUID
 @RunWith(AndroidJUnit4::class)
 class MonthlyPlanIntegrationTest {
 
+    @Test fun cambiarFrecuenciaConservaTipoEImporteDeCadaMeta() = runBlocking {
+        repository.setFixedGoal(50000, com.lyape.domain.GoalType.PROFIT)
+        repository.setMonthlyGoal(october, 150000, com.lyape.domain.GoalType.INCOME)
+        assertEquals(com.lyape.domain.GoalType.INCOME, repository.observePlan(october).first().goal!!.type)
+        repository.setGoalMode(GoalMode.FIXED_MONTHLY)
+        val fixed = repository.observePlan(october).first().goal!!
+        assertEquals(50000L, fixed.amountCents)
+        assertEquals(com.lyape.domain.GoalType.PROFIT, fixed.type)
+        repository.setGoalMode(GoalMode.BY_MONTH)
+        assertEquals(150000L, repository.observePlan(october).first().goal!!.amountCents)
+        assertNull(repository.observePlan(november).first().goal)
+    }
+
     private lateinit var database: AppDatabase
     private lateinit var repository: MonthlyPlanRepository
     private val october = YearMonth.of(2026, 10)

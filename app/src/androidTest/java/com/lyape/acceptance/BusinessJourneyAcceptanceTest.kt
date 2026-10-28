@@ -3,6 +3,7 @@ package com.lyape.acceptance
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.lyape.data.AccountsRepository
 import com.lyape.data.AppDatabase
 import com.lyape.data.MonthlyPlanRepository
 import com.lyape.data.MovementRepository
@@ -10,6 +11,7 @@ import com.lyape.domain.DateRange
 import com.lyape.domain.ExpenseSchedule
 import com.lyape.domain.GoalMode
 import com.lyape.domain.MovementClassification
+import com.lyape.notification.CaptureProviders
 import com.lyape.notification.IngestResult
 import com.lyape.notification.NotificationIngestor
 import com.lyape.notification.NotificationInput
@@ -38,6 +40,9 @@ class BusinessJourneyAcceptanceTest {
     private lateinit var plans: MonthlyPlanRepository
     private lateinit var preferences: AppPreferences
     private lateinit var ingestor: NotificationIngestor
+    private val yapeSource = requireNotNull(
+        CaptureProviders.production.forPackage(YapePackage.PROVISIONAL_PACKAGE_ID),
+    )
     private var previousPause = false
     private val date = LocalDate.of(2026, 10, 15)
     private val now = date.atTime(12, 0).atZone(ZoneId.systemDefault()).toInstant()
@@ -52,7 +57,12 @@ class BusinessJourneyAcceptanceTest {
         preferences = AppPreferences(context)
         previousPause = preferences.capturePaused.first()
         preferences.setCapturePaused(false)
-        ingestor = NotificationIngestor(movements, preferences, now = { now })
+        ingestor = NotificationIngestor(
+            movements,
+            preferences,
+            AccountsRepository(database),
+            now = { now },
+        )
     }
 
     @After
@@ -68,15 +78,15 @@ class BusinessJourneyAcceptanceTest {
     fun bdd08DuplicateDeliveryAndPauseResume() = runBlocking {
         // Dada una notificación de S/ 35 entregada dos veces.
         val input = input("pago-1", now)
-        assertEquals(IngestResult.STORED, ingestor.ingest(input))
-        assertEquals(IngestResult.DUPLICATE, ingestor.ingest(input))
+        assertStored(ingestor.ingest(input, yapeSource))
+        assertDuplicate(ingestor.ingest(input, yapeSource))
         // Cuando pauso la captura, otro aviso no se guarda; al reanudar se acepta.
         preferences.setCapturePaused(true)
         val next = input("pago-2", now.plusSeconds(60))
-        assertEquals(IngestResult.PAUSED, ingestor.ingest(next))
+        assertPaused(ingestor.ingest(next, yapeSource))
         assertEquals(1, movements.testMovements().size)
         preferences.setCapturePaused(false)
-        assertEquals(IngestResult.STORED, ingestor.ingest(next))
+        assertStored(ingestor.ingest(next, yapeSource))
         // Entonces hay exactamente dos pagos, incluso si su remitente y monto coinciden.
         val stored = movements.testMovements()
         assertEquals(2, stored.size)
@@ -87,7 +97,7 @@ class BusinessJourneyAcceptanceTest {
     @Test
     fun bdd09ReconciliationCloseAndReopenKeepIncome() = runBlocking {
         // Dado un pago capturado S/ 35, uno manual S/ 50 y una devolución S/ 5.
-        assertEquals(IngestResult.STORED, ingestor.ingest(input("pago-3", now)))
+        assertStored(ingestor.ingest(input("pago-3", now), yapeSource))
         val captured = movements.testMovements().single()
         val manual = movements.addManual(5_000, now, "Venta")
         movements.addAdjustment(-500, now, "Devolución")
@@ -148,6 +158,18 @@ class BusinessJourneyAcceptanceTest {
         assertEquals(30_000L, plans.observePlan(month.plusMonths(1)).first().goal!!.amountCents)
         plans.setGoalMode(GoalMode.FIXED_MONTHLY)
         assertEquals(25_000L, plans.observePlan(month).first().goal!!.amountCents)
+    }
+
+    private fun assertStored(result: IngestResult) {
+        assertTrue("Se esperaba guardado, pero fue $result", result is IngestResult.Stored)
+    }
+
+    private fun assertDuplicate(result: IngestResult) {
+        assertTrue("Se esperaba duplicado, pero fue $result", result is IngestResult.Duplicate)
+    }
+
+    private fun assertPaused(result: IngestResult) {
+        assertTrue("Se esperaba pausado, pero fue $result", result is IngestResult.Paused)
     }
 
     private fun input(key: String, postedAt: Instant) = NotificationInput(

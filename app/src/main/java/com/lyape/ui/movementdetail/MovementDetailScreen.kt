@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -35,8 +37,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lyape.domain.Movement
@@ -49,6 +51,7 @@ import com.lyape.ui.format.formatSignedCents
 import com.lyape.ui.model.classificationLabel
 import com.lyape.ui.model.toUi
 import com.lyape.ui.rememberMovementRepository
+import com.lyape.ui.rememberAccountsRepository
 import com.lyape.ui.theme.PillShape
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -100,10 +103,15 @@ fun MovementDetailScreen(
         busy = true
         actionError = null
         scope.launch {
-            if (runCatching { action() }.isFailure) {
+            try {
+                action()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
                 actionError = "No pudimos guardar el cambio. Vuelve a intentarlo."
+            } finally {
+                busy = false
             }
-            busy = false
         }
     }
 
@@ -149,8 +157,22 @@ private fun DetailContent(
     onRestore: () -> Unit,
     onEdit: () -> Unit,
 ) {
-    val ui = remember(movement) { movement.toUi() }
+    val context = LocalContext.current
+    val use24Hour = android.text.format.DateFormat.is24HourFormat(context)
+    val ui = remember(movement, use24Hour) { movement.toUi(use24Hour = use24Hour) }
     val excluded = ui.isExcluded
+    val accountsRepository = rememberAccountsRepository()
+    val accountName by remember(accountsRepository, movement.accountId) {
+        movement.accountId?.let { accountId ->
+            // El nombre sale del catálogo de cuentas, no del cálculo de saldos: un fallo de
+            // lectura de saldo no debe convertir una cuenta existente en «no disponible».
+            accountsRepository.observeSelectableAccounts()
+                .map { accounts ->
+                    accounts.find { it.id == accountId }?.name ?: "Cuenta no disponible"
+                }
+                .catch { emit("No se pudo cargar la cuenta") }
+        } ?: flowOf("Sin cuenta")
+    }.collectAsStateWithLifecycle(initialValue = "Cargando…")
 
     Text(
         text = ui.title,
@@ -175,6 +197,8 @@ private fun DetailContent(
     Spacer(Modifier.height(16.dp))
     LyapeCard {
         InfoRow(label = "Origen", value = ui.originLabel)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        InfoRow(label = "Cuenta", value = accountName)
         val supportingLabel = ui.supportingLabel
         if (supportingLabel != null) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -182,16 +206,6 @@ private fun DetailContent(
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         InfoRow(label = "Recibido", value = ui.dateTimeLabel)
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        InfoRow(
-            label = "Revisión",
-            value = if (ui.reviewed) "Revisado" else "Pendiente",
-            valueColor = if (ui.reviewed) {
-                MaterialTheme.colorScheme.onSurface
-            } else {
-                MaterialTheme.colorScheme.primary
-            },
-        )
         if (excluded) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             InfoRow(
@@ -283,18 +297,22 @@ private fun ClassifyRow(
             .fillMaxWidth()
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(4.dp),
+            .padding(4.dp)
+            .selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         listOf(MovementClassification.BUSINESS, MovementClassification.PERSONAL).forEach { option ->
             val selected = classification == option
             Surface(
-                onClick = { onSelect(option) },
-                enabled = enabled,
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = 48.dp)
-                    .semantics { stateDescription = if (selected) "Seleccionado" else "No seleccionado" },
+                    .selectable(
+                        selected = selected,
+                        enabled = enabled,
+                        role = Role.RadioButton,
+                        onClick = { onSelect(option) },
+                    ),
                 shape = CircleShape,
                 color = if (selected) {
                     MaterialTheme.colorScheme.primary

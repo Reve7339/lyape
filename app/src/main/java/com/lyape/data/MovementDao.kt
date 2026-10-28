@@ -20,6 +20,58 @@ import java.util.UUID
  */
 @Dao
 interface MovementDao {
+    @androidx.room.Transaction
+    suspend fun mutateAtomically(id: UUID, transform: (MovementEntity) -> MovementEntity): Boolean {
+        val current = getById(id) ?: return false
+        val updated = transform(current)
+        if (updated.accountId != current.accountId && updated.accountId != null && !accountExists(updated.accountId)) {
+            throw AccountUnavailableException("La cuenta ya no existe. Elige otra.")
+        }
+        if (updated != current) update(updated)
+        return true
+    }
+
+    /**
+     * Aplica una edición solo si la revisión guardada sigue siendo la esperada.
+     *
+     * Toda la comprobación, la comparación de contenido y la escritura ocurren en la misma
+     * transacción. Un reenvío del mismo intento se reconoce como [MovementEditResult.AlreadyApplied];
+     * una revisión posterior con otro intento devuelve [MovementEditResult.Conflict] sin escribir.
+     */
+    @androidx.room.Transaction
+    suspend fun editAtomically(
+        id: UUID,
+        expectedVersion: Long,
+        attemptId: UUID,
+        matches: (MovementEntity) -> Boolean,
+        apply: (MovementEntity) -> MovementEntity,
+    ): MovementEditResult {
+        val current = getById(id) ?: return MovementEditResult.NotFound
+        if (current.editVersion != expectedVersion) {
+            return if (current.lastEditAttemptId == attemptId && matches(current)) {
+                MovementEditResult.AlreadyApplied
+            } else {
+                MovementEditResult.Conflict
+            }
+        }
+        if (matches(current)) return MovementEditResult.AlreadyApplied
+
+        val updated = apply(current)
+        if (updated.editVersion != expectedVersion + 1L) {
+            throw IllegalStateException("La revisión de edición no avanzó.")
+        }
+        if (updated.accountId != current.accountId &&
+            updated.accountId != null &&
+            !accountExists(updated.accountId)
+        ) {
+            throw AccountUnavailableException("La cuenta ya no existe. Elige otra.")
+        }
+        update(updated)
+        return MovementEditResult.Applied
+    }
+
+    @Query("SELECT EXISTS(SELECT 1 FROM cash_accounts WHERE id=:id)")
+    suspend fun accountExists(id: String): Boolean
 
     // Room añade LIMIT/OFFSET: cada carga materializa solo la página solicitada.
     @Query(
@@ -113,6 +165,7 @@ interface MovementDao {
         """
         SELECT * FROM movements
         WHERE occurredAt >= :fromMillis AND occurredAt <= :toMillis
+          AND (:medium IS NULL OR medium = :medium)
           AND (
               (:notificationKey IS NOT NULL AND notificationKey = :notificationKey)
               OR (:deduplicationHash IS NOT NULL AND deduplicationHash = :deduplicationHash)
@@ -122,12 +175,17 @@ interface MovementDao {
     suspend fun findDedupCandidates(
         notificationKey: String?,
         deduplicationHash: String?,
+        medium: String?,
         fromMillis: Long,
         toMillis: Long,
     ): List<MovementEntity>
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(movement: MovementEntity)
+
+    /** Inserción idempotente: no reemplaza una fila existente con el mismo id. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfAbsent(movement: MovementEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertAll(movements: List<MovementEntity>)

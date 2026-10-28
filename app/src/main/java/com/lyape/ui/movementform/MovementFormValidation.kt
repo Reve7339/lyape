@@ -7,6 +7,7 @@ import com.lyape.ui.format.parseDateInput
 import com.lyape.ui.format.parseTimeInput
 import java.time.Instant
 import java.time.ZoneId
+import com.lyape.domain.MovementClassification
 
 /** Tipo de movimiento que registra el formulario. Un ajuste siempre exige motivo. */
 enum class MovementFormKind(val needsReason: Boolean) {
@@ -24,12 +25,14 @@ data class MovementFormValues(
     val timeText: String,
     val labelText: String,
     val adjustmentSign: AdjustmentSign = AdjustmentSign.POSITIVE,
+    val accountId: String? = null,
+    val classification: MovementClassification = MovementClassification.BUSINESS,
 )
 
 /** True cuando el formulario difiere de los valores con los que inició. */
 fun MovementFormValues.hasChangesFrom(initial: MovementFormValues): Boolean = this != initial
 
-private const val FORM_VALUES_COUNT = 6
+private const val FORM_VALUES_COUNT = 8
 
 /** Serializa el formulario para sobrevivir a la recreación de la actividad. */
 internal fun MovementFormValues.toSavedValues(): List<String> = listOf(
@@ -39,11 +42,13 @@ internal fun MovementFormValues.toSavedValues(): List<String> = listOf(
     timeText,
     labelText,
     adjustmentSign.name,
+    accountId.orEmpty(),
+    classification.name,
 )
 
 /** Reconstruye el formulario guardado. Devuelve `null` si el contenido no es válido. */
 internal fun movementFormValuesFromSaved(saved: List<String>): MovementFormValues? {
-    if (saved.size != FORM_VALUES_COUNT) return null
+    if (saved.size !in 6..FORM_VALUES_COUNT) return null
     val kind = runCatching { MovementFormKind.valueOf(saved[0]) }.getOrNull() ?: return null
     val sign = runCatching { AdjustmentSign.valueOf(saved[5]) }.getOrNull() ?: return null
     return MovementFormValues(
@@ -53,8 +58,21 @@ internal fun movementFormValuesFromSaved(saved: List<String>): MovementFormValue
         timeText = saved[3],
         labelText = saved[4],
         adjustmentSign = sign,
+        accountId = saved.getOrNull(6)?.takeIf { it.isNotBlank() },
+        classification = saved.getOrNull(7)?.let { runCatching { MovementClassification.valueOf(it) }.getOrNull() ?: return null }
+            ?: MovementClassification.BUSINESS,
     )
 }
+
+/** Los campos muestran minutos, pero una edición ajena a la fecha no pierde segundos de captura. */
+internal fun preserveTimestampPrecision(
+    values: MovementFormValues,
+    initial: MovementFormValues,
+    parsed: Instant,
+    original: Instant,
+): Instant = if (values.dateText == initial.dateText && values.timeText == initial.timeText) {
+    original
+} else parsed
 
 /**
  * Resultado de validar un formulario.

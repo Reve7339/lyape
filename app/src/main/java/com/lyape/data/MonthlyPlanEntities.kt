@@ -1,10 +1,12 @@
 package com.lyape.data
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.lyape.domain.MonthlyExpense
 import com.lyape.domain.MonthlyGoal
+import com.lyape.domain.GoalType
 import com.lyape.domain.ExpenseSchedule
 import com.lyape.domain.annualExpenseShare
 import java.time.YearMonth
@@ -25,6 +27,7 @@ data class MonthlyExpenseEntity(
 data class MonthlyGoalEntity(
     @PrimaryKey val month: String,
     val amountCents: Long,
+    @ColumnInfo(defaultValue = "'INCOME'") val type: String = GoalType.INCOME.name,
 )
 
 @Entity(
@@ -43,6 +46,7 @@ data class GoalSettingsEntity(
     @PrimaryKey val id: Int = SINGLETON_ID,
     val mode: String,
     val fixedAmountCents: Long?,
+    @ColumnInfo(defaultValue = "'INCOME'") val fixedType: String = GoalType.INCOME.name,
 ) {
     companion object {
         const val SINGLETON_ID = 0
@@ -79,9 +83,11 @@ internal fun RecurringExpenseEntity.toDomain(month: YearMonth): MonthlyExpense =
 internal fun MonthlyGoalEntity.toDomain(): MonthlyGoal = MonthlyGoal(
     month = YearMonth.parse(month),
     amountCents = amountCents,
+    type = GoalType.valueOf(type),
 )
 
 internal fun MonthlyGoal.toEntity(): MonthlyGoalEntity = MonthlyGoalEntity(
     month = month.toString(),
     amountCents = amountCents,
+    type = type.name,
 )

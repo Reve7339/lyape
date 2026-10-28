@@ -7,6 +7,10 @@ import com.lyape.domain.DateRange
 import com.lyape.domain.Movement
 import com.lyape.domain.MovementClassification
 import com.lyape.domain.MovementSource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -165,6 +169,152 @@ class ReconciliationIntegrationTest {
     }
 
     @Test
+    fun unReintentoDelMismoAltaConOtroContenidoDevuelveConflictoYNoSobrescribe() = runBlocking {
+        val attempt = UUID.fromString("00000000-0000-0000-0000-0000000000aa")
+        repository.addManual(
+            amountCents = 2_000,
+            occurredAt = at(10),
+            label = "Bodega",
+            id = attempt,
+        )
+
+        assertThrows(MovementAttemptConflictException::class.java) {
+            runBlocking {
+                repository.addManual(
+                    amountCents = 9_999,
+                    occurredAt = at(11),
+                    label = "Intento repetido",
+                    id = attempt,
+                )
+            }
+        }
+
+        val stored = repository.findById(attempt)!!
+        assertEquals(2_000L, stored.amountCents)
+        assertEquals("Bodega", stored.senderName)
+        assertEquals(at(10), stored.occurredAt)
+        assertEquals(1, repository.totalsInRange(day).movementCount)
+    }
+
+    @Test
+    fun unReintentoDelMismoAltaConMismoContenidoRecuperaElResultadoSinDuplicar() = runBlocking {
+        val attempt = UUID.randomUUID()
+        repository.addManual(2_000, at(10), "Bodega", id = attempt)
+        val first = repository.findById(attempt)!!
+
+        repository.addManual(2_000, at(10), "Bodega", id = attempt)
+
+        val stored = repository.findById(attempt)!!
+        assertEquals(first, stored)
+        assertEquals(1, repository.totalsInRange(day).movementCount)
+    }
+
+    @Test
+    fun unAltaConSubmilisegundosSeReconoceTrasPersistirSinDuplicar() = runBlocking {
+        val attempt = UUID.randomUUID()
+        val precise = at(10).plusNanos(123_456_789)
+
+        repository.addManual(2_000, precise, "Bodega", id = attempt)
+        repository.addManual(2_000, precise, "Bodega", id = attempt)
+
+        val stored = repository.findById(attempt)!!
+        assertEquals(Instant.ofEpochMilli(precise.toEpochMilli()), stored.occurredAt)
+        assertEquals(1, repository.totalsInRange(day).movementCount)
+    }
+
+    @Test
+    fun dosIntentosDistintosConContenidoIdenticoSonDosMovimientos() = runBlocking {
+        val first = UUID.randomUUID()
+        val second = UUID.randomUUID()
+        repository.addManual(2_000, at(10), "Bodega", id = first)
+        repository.addManual(2_000, at(10), "Bodega", id = second)
+
+        assertEquals(2, repository.totalsInRange(day).movementCount)
+        assertTrue(repository.findById(first) != null)
+        assertTrue(repository.findById(second) != null)
+    }
+
+    @Test
+    fun elMismoIdConOtroTipoOClasificacionNoSeConfirmaComoGuardado() = runBlocking {
+        val typeAttempt = UUID.randomUUID()
+        repository.addManual(2_000, at(10), "Bodega", id = typeAttempt)
+        assertThrows(MovementAttemptConflictException::class.java) {
+            runBlocking {
+                repository.addAdjustment(2_000, at(10), "Bodega", id = typeAttempt)
+            }
+        }
+        assertEquals(MovementSource.MANUAL, repository.findById(typeAttempt)!!.source)
+
+        val classificationAttempt = UUID.randomUUID()
+        repository.addManual(2_000, at(10), "Bodega", id = classificationAttempt)
+        assertThrows(MovementAttemptConflictException::class.java) {
+            runBlocking {
+                repository.addManual(
+                    2_000,
+                    at(10),
+                    "Bodega",
+                    classification = MovementClassification.PERSONAL,
+                    id = classificationAttempt,
+                )
+            }
+        }
+        assertEquals(
+            MovementClassification.BUSINESS,
+            repository.findById(classificationAttempt)!!.classification,
+        )
+    }
+
+    @Test
+    fun elMismoIdConOtraCuentaNoSeConfirmaComoGuardado() = runBlocking {
+        database.accountsDao().insertAccount(
+            CashAccountEntity("cash", "Efectivo", com.lyape.domain.AccountKind.CASH.name, null, 0, 0, 0, 0),
+        )
+        val attempt = UUID.randomUUID()
+        repository.addManual(2_000, at(10), "Bodega", id = attempt)
+
+        assertThrows(MovementAttemptConflictException::class.java) {
+            runBlocking {
+                repository.addManual(2_000, at(10), "Bodega", accountId = "cash", id = attempt)
+            }
+        }
+
+        assertNull(repository.findById(attempt)!!.accountId)
+    }
+
+    @Test
+    fun dosEnviosConcurrentesDelMismoIntentoNoDuplican() = runBlocking {
+        val attempt = UUID.randomUUID()
+        coroutineScope {
+            List(2) {
+                async(Dispatchers.Default) {
+                    repository.addManual(2_000, at(10), "Bodega", id = attempt)
+                }
+            }.awaitAll()
+        }
+
+        assertEquals(1, repository.totalsInRange(day).movementCount)
+        assertEquals(2_000L, repository.findById(attempt)!!.amountCents)
+    }
+
+    @Test
+    fun dosEnviosConcurrentesConContenidoDistintoProducenUnConflicto() = runBlocking {
+        val attempt = UUID.randomUUID()
+        val results = coroutineScope {
+            listOf(2_000L, 9_999L).map { amount ->
+                async(Dispatchers.Default) {
+                    runCatching {
+                        repository.addManual(amount, at(10), "Bodega", id = attempt)
+                    }
+                }
+            }.awaitAll()
+        }
+
+        assertEquals(1, results.count { it.isSuccess })
+        assertEquals(1, results.count { it.exceptionOrNull() is MovementAttemptConflictException })
+        assertEquals(1, repository.totalsInRange(day).movementCount)
+    }
+
+    @Test
     fun losAjustesPositivosYNegativosAjustanElTotal() = runBlocking {
         repository.addManual(amountCents = 2_000, occurredAt = at(10), label = null)
         repository.addAdjustment(amountCents = 500, occurredAt = at(11), reason = "Redondeo")
@@ -204,6 +354,8 @@ class ReconciliationIntegrationTest {
             senderName = "  Ana  ",
             description = null,
             adjustmentReason = null,
+            expectedVersion = 0L,
+            editAttemptId = UUID.randomUUID(),
         )
 
         val edited = repository.findById(original.id)!!
@@ -217,6 +369,246 @@ class ReconciliationIntegrationTest {
         assertEquals(original.createdAt, edited.createdAt)
         assertEquals(original.deduplicationHash, edited.deduplicationHash)
         assertEquals(2_500L, repository.totalsInRange(day).businessCents)
+    }
+
+    @Test
+    fun unaEdicionRepetidaDelMismoIntentoNoVuelveAAlterarTrazabilidad() = runBlocking {
+        val original = movement(amountCents = 1_000, occurredAt = at(9))
+        repository.add(original)
+        val attempt = UUID.randomUUID()
+
+        val firstResult = repository.edit(
+            id = original.id,
+            amountCents = 1_500,
+            occurredAt = at(10),
+            senderName = "Ana",
+            description = null,
+            adjustmentReason = null,
+            expectedVersion = 0L,
+            editAttemptId = attempt,
+        )
+        val first = repository.findById(original.id)!!
+
+        val repeated = repository.edit(
+            id = original.id,
+            amountCents = 1_500,
+            occurredAt = at(10),
+            senderName = "Ana",
+            description = null,
+            adjustmentReason = null,
+            expectedVersion = 0L,
+            editAttemptId = attempt,
+        )
+
+        assertEquals(MovementEditResult.Applied, firstResult)
+        assertEquals(MovementEditResult.AlreadyApplied, repeated)
+        assertEquals(first, repository.findById(original.id))
+        assertEquals(1L, first.editVersion)
+    }
+
+    @Test
+    fun unaEdicionConSubmilisegundosSeReconoceComoYaAplicada() = runBlocking {
+        val original = movement(amountCents = 1_000, occurredAt = at(9))
+        repository.add(original)
+        val attempt = UUID.randomUUID()
+        val precise = at(10).plusNanos(123_456_789)
+
+        val firstResult = repository.edit(
+            id = original.id,
+            amountCents = 1_500,
+            occurredAt = precise,
+            senderName = "Ana",
+            description = null,
+            adjustmentReason = null,
+            expectedVersion = 0L,
+            editAttemptId = attempt,
+        )
+        val first = repository.findById(original.id)!!
+
+        val repeated = repository.edit(
+            id = original.id,
+            amountCents = 1_500,
+            occurredAt = precise,
+            senderName = "Ana",
+            description = null,
+            adjustmentReason = null,
+            expectedVersion = 0L,
+            editAttemptId = attempt,
+        )
+
+        assertEquals(MovementEditResult.Applied, firstResult)
+        assertEquals(MovementEditResult.AlreadyApplied, repeated)
+        assertEquals(Instant.ofEpochMilli(precise.toEpochMilli()), first.occurredAt)
+        assertEquals(1L, first.editVersion)
+        assertEquals(first, repository.findById(original.id))
+    }
+
+    @Test
+    fun reutilizarElIntentoDeEdicionConOtroMilisegundoOImporteSigueSiendoConflicto() = runBlocking {
+        val original = movement(amountCents = 1_000, occurredAt = at(9))
+        repository.add(original)
+        val attempt = UUID.randomUUID()
+        val precise = at(10).plusNanos(123_456_789)
+
+        assertEquals(
+            MovementEditResult.Applied,
+            repository.edit(
+                id = original.id,
+                amountCents = 1_500,
+                occurredAt = precise,
+                senderName = "Ana",
+                description = null,
+                adjustmentReason = null,
+                expectedVersion = 0L,
+                editAttemptId = attempt,
+            ),
+        )
+        val applied = repository.findById(original.id)!!
+
+        val otherInstant = repository.edit(
+            id = original.id,
+            amountCents = 1_500,
+            occurredAt = precise.plusMillis(1),
+            senderName = "Ana",
+            description = null,
+            adjustmentReason = null,
+            expectedVersion = 0L,
+            editAttemptId = attempt,
+        )
+        val otherAmount = repository.edit(
+            id = original.id,
+            amountCents = 1_501,
+            occurredAt = precise,
+            senderName = "Ana",
+            description = null,
+            adjustmentReason = null,
+            expectedVersion = 0L,
+            editAttemptId = attempt,
+        )
+
+        assertEquals(MovementEditResult.Conflict, otherInstant)
+        assertEquals(MovementEditResult.Conflict, otherAmount)
+        assertEquals(applied, repository.findById(original.id))
+    }
+
+    @Test
+    fun unaEdicionAntiguaDespuesDeUnaNuevaDevuelveConflictoSinSobrescribir() = runBlocking {
+        val original = movement(amountCents = 1_000, occurredAt = at(9))
+        repository.add(original)
+        val oldAttempt = UUID.randomUUID()
+        repository.edit(
+            id = original.id,
+            amountCents = 1_500,
+            occurredAt = at(10),
+            senderName = "Primera",
+            description = null,
+            adjustmentReason = null,
+            expectedVersion = 0L,
+            editAttemptId = oldAttempt,
+        )
+        val newAttempt = UUID.randomUUID()
+        repository.edit(
+            id = original.id,
+            amountCents = 2_500,
+            occurredAt = at(11),
+            senderName = "Segunda",
+            description = null,
+            adjustmentReason = null,
+            expectedVersion = 1L,
+            editAttemptId = newAttempt,
+        )
+
+        val oldResult = repository.edit(
+            id = original.id,
+            amountCents = 1_500,
+            occurredAt = at(10),
+            senderName = "Primera",
+            description = null,
+            adjustmentReason = null,
+            expectedVersion = 0L,
+            editAttemptId = oldAttempt,
+        )
+
+        assertEquals(MovementEditResult.Conflict, oldResult)
+        val stored = repository.findById(original.id)!!
+        assertEquals(2_500L, stored.amountCents)
+        assertEquals("Segunda", stored.senderName)
+        assertEquals(2L, stored.editVersion)
+    }
+
+    @Test
+    fun elMismoIntentoDeEdicionConOtroContenidoDevuelveConflicto() = runBlocking {
+        val original = movement(amountCents = 1_000, occurredAt = at(9))
+        repository.add(original)
+        val attempt = UUID.randomUUID()
+        repository.edit(
+            id = original.id,
+            amountCents = 1_500,
+            occurredAt = at(10),
+            senderName = "Ana",
+            description = null,
+            adjustmentReason = null,
+            expectedVersion = 0L,
+            editAttemptId = attempt,
+        )
+
+        val result = repository.edit(
+            id = original.id,
+            amountCents = 9_999,
+            occurredAt = at(10),
+            senderName = "Ana",
+            description = null,
+            adjustmentReason = null,
+            expectedVersion = 0L,
+            editAttemptId = attempt,
+        )
+
+        assertEquals(MovementEditResult.Conflict, result)
+        assertEquals(1_500L, repository.findById(original.id)!!.amountCents)
+    }
+
+    @Test
+    fun editarNoCambiaLaClasificacionNiLaTrazabilidad() = runBlocking {
+        val original = movement(
+            amountCents = 1_000,
+            occurredAt = at(9),
+            classification = MovementClassification.PERSONAL,
+        )
+        repository.add(original)
+
+        repository.edit(
+            id = original.id,
+            amountCents = 1_500,
+            occurredAt = at(10),
+            senderName = "Ana",
+            description = null,
+            adjustmentReason = null,
+            expectedVersion = 0L,
+            editAttemptId = UUID.randomUUID(),
+        )
+
+        val stored = repository.findById(original.id)!!
+        assertEquals(MovementClassification.PERSONAL, stored.classification)
+        assertEquals(original.capturedAt, stored.capturedAt)
+        assertEquals(original.createdAt, stored.createdAt)
+        assertEquals(original.notificationKey, stored.notificationKey)
+        assertEquals(1L, stored.editVersion)
+    }
+
+    @Test
+    fun editarUnMovimientoInexistenteDevuelveNotFound() = runBlocking {
+        val result = repository.edit(
+            id = UUID.randomUUID(),
+            amountCents = 1_500,
+            occurredAt = at(10),
+            senderName = "Ana",
+            description = null,
+            adjustmentReason = null,
+            expectedVersion = 0L,
+            editAttemptId = UUID.randomUUID(),
+        )
+
+        assertEquals(MovementEditResult.NotFound, result)
     }
 
     // --- Cierre diario ---
@@ -284,6 +676,8 @@ class ReconciliationIntegrationTest {
             senderName = "Corregido",
             description = null,
             adjustmentReason = null,
+            expectedVersion = 0L,
+            editAttemptId = UUID.randomUUID(),
         )
 
         repository.closeDay(date)

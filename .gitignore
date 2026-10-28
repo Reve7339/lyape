@@ -29,12 +29,16 @@ __pycache__/
 /mockups/
 /AGENTS.md
 /COMMANDCODE.md
+/PRODUCT.md
+/DESIGN.md
 # Configuración local de herramientas.
 mise.local.toml
 /.dev/
 /.agents/
 /.codex/
+/.commandcode/
 /.aws/
+/.impeccable/
 # Firma y secretos locales: nunca forman parte del código abierto.
 *.jks
 *.keystore

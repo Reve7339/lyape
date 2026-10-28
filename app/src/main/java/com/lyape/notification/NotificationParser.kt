@@ -40,19 +40,28 @@ sealed interface ParseResult {
 /**
  * Parser de notificaciones, puro y aislado de Android (sin `Context`, Room ni APIs del sistema).
  *
- * ATENCIÓN: los patrones son **provisionales**. No están validados contra notificaciones reales de
- * Yape; deben refinarse con entre 3 y 5 muestras anonimizadas y el identificador de paquete
- * confirmado. Son deliberadamente conservadores:
- * exigen el prefijo monetario `S/` y no inventan monto ni remitente.
+ * Yape solo se interpreta cuando el texto contiene una frase explícita de **recepción**. Tener un
+ * monto, un título genérico o el nombre del remitente no basta: una notificación de envío, saldo,
+ * promoción, fallo o negación se descarta completa. Los patrones de remitente son provisionales;
+ * los formatos confirmados y los sintéticos se distinguen en las pruebas.
+ *
+ * La regla es deliberadamente conservadora: ante dos operaciones, dos remitentes contradictorios,
+ * un token monetario inválido o un monto no positivo, no se elige un importe al azar.
  */
 object NotificationParser {
 
     fun parse(input: NotificationInput): ParseResult {
-        val amountCents = findAmountCents(input) ?: return ParseResult.Unknown
-        val normalizedText = NotificationFingerprint.normalizeForFingerprint(combinedText(input))
+        val combined = combinedText(input)
+        if (REJECTED_CONTEXT.containsMatchIn(combined)) return ParseResult.Unknown
+
+        val receipt = receiptEvidence(input) ?: return ParseResult.Unknown
+        val amountCents = findAmountCents(combined, receipt.start) ?: return ParseResult.Unknown
+        if (amountCents <= 0L) return ParseResult.Unknown
+
+        val normalizedText = NotificationFingerprint.normalizeForFingerprint(combined)
         return ParseResult.Parsed(
             amountCents = amountCents,
-            senderName = findSenderName(input),
+            senderName = receipt.senderName,
             fingerprint = NotificationFingerprint.compute(
                 packageName = input.packageName,
                 amountCents = amountCents,
@@ -67,19 +76,112 @@ object NotificationParser {
             .joinToString("\n")
 
     /**
-     * Devuelve un único monto no ambiguo.
+     * Evidencia de recepción por campo.
      *
-     * El mismo valor puede aparecer repetido entre título, texto y texto expandido. Si aparece
-     * cualquier token monetario inválido o más de un monto distinto, se rechaza la notificación
-     * completa para no elegir arbitrariamente un importe.
+     * La frase positiva debe describir un cobro, no solo contener una palabra. Cada campo aporta
+     * una operación como máximo. Los campos text/bigText pueden repetir la misma operación o
+     * completarla; dos operaciones sin remitente que difieren en su frase también son ambiguas y
+     * se rechazan aunque compartan el importe. Un título genérico sin monto ni remitente no cuenta
+     * como una segunda operación.
      */
-    private fun findAmountCents(input: NotificationInput): Long? {
-        val matches = AMOUNT_PATTERN.findAll(combinedText(input)).toList()
+    private fun receiptEvidence(input: NotificationInput): ReceiptEvidence? {
+        val fields = listOfNotNull(input.title, input.text, input.expandedText)
+            .filter { it.isNotBlank() }
+        val evidence = mutableListOf<FieldEvidence>()
+        var firstStart = Int.MAX_VALUE
+        var fieldOffset = 0
+
+        for (field in fields) {
+            val matches = RECEIPT_PATTERNS.flatMap { it.findAll(field).toList() }
+                .sortedBy { it.range.first }
+            if (matches.size > 1) return null
+            val match = matches.singleOrNull()
+            if (match != null) {
+                if (isNegated(field, match.range.first)) return null
+                val senderName = findSenderName(field)
+                val amountAfterReceipt = AMOUNT_PATTERN.find(field, match.range.last + 1)
+                firstStart = minOf(firstStart, fieldOffset + match.range.first)
+                evidence += FieldEvidence(
+                    senderName = senderName,
+                    receiptLine = NotificationFingerprint.normalizeForFingerprint(
+                        lineAt(field, match.range.first),
+                    ),
+                    operational = senderName != null || amountAfterReceipt != null,
+                    minimalReceipt = amountAfterReceipt?.let { amount ->
+                        isMinimalReceipt(field, match.range, amount.range)
+                    } ?: false,
+                )
+            }
+            fieldOffset += field.length + 1
+        }
+
+        if (evidence.isEmpty()) return null
+
+        val operational = evidence.filter { it.operational }
+        val named = operational.filter { it.senderName != null }
+        if (named.mapNotNull { it.senderName }.distinct().size > 1) return null
+
+        // Repetición idéntica text/bigText: válida. Dos frases distintas con el mismo remitente
+        // siguen siendo ambiguas; la línea de la recepción debe coincidir.
+        if (named.size > 1 && named.map { it.receiptLine }.distinct().size > 1) return null
+
+        // Sin remitente no hay una señal adicional para unir las dos evidencias. Solo se acepta
+        // la repetición de la misma frase de recepción (puede cambiar el detalle de otra línea).
+        if (named.isEmpty() && operational.map { it.receiptLine }.distinct().size > 1) return null
+
+        // Evidencia mixta: un campo con remitente reconocido y otro sin él. El segundo no puede
+        // aportar ninguna otra palabra operativa (por ejemplo, otro nombre no extraíble): elegir el
+        // único nombre reconocible o compartir importe no demuestra que sea la misma operación.
+        // Sí se admiten los complementos que solo repiten la frase de cobro y el importe.
+        val unnamed = operational.filter { it.senderName == null }
+        if (named.isNotEmpty() && unnamed.any { !it.minimalReceipt }) return null
+
+        return ReceiptEvidence(
+            start = firstStart,
+            senderName = named.firstOrNull()?.senderName,
+        )
+    }
+
+    /** La negación se evalúa junto a la frase positiva, no como una lista global de casos. */
+    private fun isNegated(text: String, matchStart: Int): Boolean {
+        val from = (matchStart - NEGATION_LOOKBEHIND).coerceAtLeast(0)
+        return NEGATION_BEFORE.containsMatchIn(text.substring(from, matchStart))
+    }
+
+    private fun lineAt(text: String, index: Int): String {
+        val lineStart = text.lastIndexOf('\n', index).let { if (it < 0) 0 else it + 1 }
+        val lineEnd = text.indexOf('\n', index).let { if (it < 0) text.length else it }
+        return text.substring(lineStart, lineEnd).trim()
+    }
+
+    /**
+     * Un complemento sin remitente solo puede repetir la frase de recepción, el importe y
+     * conectores genéricos. Cualquier otro término o dígito queda sin atribuir: no se une la
+     * operación por compartir importe ni se elige el único nombre reconocible.
+     */
+    private fun isMinimalReceipt(text: String, receipt: IntRange, amount: IntRange): Boolean {
+        val residual = text.removeRange(amount).removeRange(receipt)
+        if (residual.any { it.isDigit() }) return false
+        return LEXICAL_WORD.findAll(residual).all {
+            it.value.lowercase() in COMPLEMENTARY_RECEIPT_WORDS
+        }
+    }
+
+    /**
+     * Devuelve un único monto no ambiguo y posterior a la frase de recepción.
+     *
+     * El mismo valor puede aparecer repetido entre título, texto y texto expandido. Cualquier
+     * token monetario inválido, o más de un monto distinto, invalida la notificación completa.
+     */
+    private fun findAmountCents(combined: String, receiptStart: Int): Long? {
+        val matches = AMOUNT_PATTERN.findAll(combined).toList()
         if (matches.isEmpty()) return null
 
         val amounts = LinkedHashSet<Long>()
         for (match in matches) {
-            val cents = amountCentsOrNull(match.groupValues[1]) ?: return null
+            if (match.range.first < receiptStart) return null
+            val token = normalizeToken(match.groupValues[1]) ?: return null
+            val cents = PenAmount.centsOrNull(token) ?: return null
             amounts += cents
             if (amounts.size > 1) return null
         }
@@ -87,11 +189,20 @@ object NotificationParser {
     }
 
     /**
+     * Captura el token completo (no solo el prefijo numérico) y retira puntuación de cierre
+     * legítima. Así `10.00abc` y `1e3` no se reinterpretan como `10` o `1`.
+     */
+    private fun normalizeToken(raw: String): String? {
+        val trimmed = raw.trim().trimEnd(*TOKEN_TRAILING_PUNCTUATION)
+        return trimmed.takeIf { it.isNotEmpty() }
+    }
+
+    /**
      * Extrae el remitente solo de frases explícitas, una por línea. Si el nombre y la frase no
      * comparten línea, se deja en `null` para no atribuir un remitente equivocado.
      */
-    private fun findSenderName(input: NotificationInput): String? {
-        for (rawLine in combinedText(input).split('\n')) {
+    private fun findSenderName(text: String): String? {
+        for (rawLine in text.split('\n')) {
             val line = rawLine.trim()
             if (line.isEmpty()) continue
             for (pattern in SENDER_PATTERNS) {
@@ -108,52 +219,75 @@ object NotificationParser {
             name.any { it.isLetter() } &&
             name.none { it.isDigit() }
 
-    /**
-     * Convierte el token numérico (ya sin el prefijo `S/`) a céntimos, sin `Float` ni `Double`.
-     *
-     * Regla conservadora, orientada a la notación PEN: el punto es **siempre** separador decimal
-     * (uno o dos dígitos) y la coma puede ser separador de miles (grupos exactos de tres) o
-     * separador decimal, cuando no es ambigua. Cualquier otra forma, o un valor que desborde
-     * `Long`, se rechaza; en particular se rechazan `1.284` y `35.505`.
-     */
-    private fun amountCentsOrNull(rawToken: String): Long? {
-        val token = rawToken.trim().trimEnd('.', ',')
-        if (token.isEmpty()) return null
-
-        val parts = when {
-            THOUSANDS_DECIMAL.matches(token) -> token.replace(",", "").split('.', limit = 2)
-            COMMA_DECIMAL.matches(token) -> token.split(',', limit = 2)
-            POINT_DECIMAL.matches(token) -> token.split('.', limit = 2)
-            else -> return null
-        }
-
-        val integerPart = parts[0]
-        if (integerPart.isEmpty()) return null
-        val decimalPart = parts.getOrElse(1) { "" }
-        val centsDigits = integerPart + decimalPart.padEnd(2, '0').take(2)
-        // `toLongOrNull` rechaza tanto ceros sobrantes mal formados como el desbordamiento.
-        return centsDigits.toLongOrNull()
-    }
-
     private const val MIN_NAME_LENGTH = 2
     private const val MAX_NAME_LENGTH = 60
-
-    /** Prefijo monetario obligatorio: `S/` o `S/.`, con separación opcional. */
-    private val AMOUNT_PATTERN = Regex("""(?<![A-Za-z0-9])S/\.?\s*([0-9][0-9.,]*)""")
+    private const val NEGATION_LOOKBEHIND = 48
 
     /**
-     * Miles con coma, decimales con punto: `1,284` o `1,284.50`.
-     *
-     * Exige al menos un grupo de miles y prohíbe ceros iniciales; así `0,005` no puede
-     * reinterpretarse como cinco soles cuando en realidad es un decimal inválido.
+     * Palabras que no añaden una segunda operación ni identifican a otra persona. La lista es
+     * deliberadamente corta: cualquier otro término en un campo sin remitente invalida la mezcla.
      */
-    private val THOUSANDS_DECIMAL = Regex("""^[1-9]\d{0,2}(,\d{3})+(\.\d{1,2})?$""")
+    private val COMPLEMENTARY_RECEIPT_WORDS = setOf(
+        "de", "del", "el", "en", "la", "las", "los", "por", "un", "una",
+    )
+    private val LEXICAL_WORD = Regex("""\p{L}+""")
 
-    /** Decimales con coma: `16,50`. */
-    private val COMMA_DECIMAL = Regex("""^\d+(,\d{1,2})?$""")
+    /** Espacios normales, duros y finos usados por las notificaciones. */
+    private const val WS = """[\s\u00A0\u2007\u202F]"""
 
-    /** Sin separador de miles, decimales opcionales con punto: `1234` o `1234.50`. */
-    private val POINT_DECIMAL = Regex("""^\d+(\.\d{1,2})?$""")
+    private data class FieldEvidence(
+        val senderName: String?,
+        val receiptLine: String,
+        val operational: Boolean,
+        val minimalReceipt: Boolean,
+    )
+
+    private data class ReceiptEvidence(
+        val start: Int,
+        val senderName: String?,
+    )
+
+    /** Prefijo monetario obligatorio: `S/` o `S/.`, con separación opcional. */
+    private val AMOUNT_PATTERN = Regex("""(?<![A-Za-z0-9])S/\.?\s*([^\s]+)""")
+
+    /**
+     * Frases que describen un cobro. `recibiste` exige un objeto monetario o el importe pegado:
+     * no basta con la palabra suelta, que también aparece en cupones y descuentos.
+     */
+    private val RECEIPT_PATTERNS = listOf(
+        Regex(
+            """\brecibiste$WS+(?:(?:un|una|el|la|tu|su)$WS+)?(?:pago|abono|dep[oó]sito|transferencia)\b""",
+            RegexOption.IGNORE_CASE,
+        ),
+        Regex("""\brecibiste$WS+(?=S/)""", RegexOption.IGNORE_CASE),
+        Regex("""\bte$WS+pag[oó](?=$WS|$|[.,;:!?])""", RegexOption.IGNORE_CASE),
+        Regex("""\bte$WS+envi[oó]$WS+un$WS+pago$WS+por\b""", RegexOption.IGNORE_CASE),
+        Regex("""\bte$WS+lleg[oó]$WS+un$WS+pago\b""", RegexOption.IGNORE_CASE),
+        Regex("""\bpago$WS+recibido\b""", RegexOption.IGNORE_CASE),
+    )
+
+    /**
+     * Negación inmediatamente anterior a la frase positiva. Se evalúa por campo y junto al
+     * patrón admitido, de modo que cada nueva frase de cobro hereda la misma protección.
+     */
+    private val NEGATION_BEFORE = Regex(
+        """(?:\bno|\bnunca|\bjam[áa]s|\ba[úu]n$WS+no|\btodav[íi]a$WS+no|""" +
+            """\bno$WS+(?:hay|existe))(?:$WS+(?:se|te|me|nos))?$WS*$""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
+     * Contextos que no son un cobro. Incluye envíos, saldo, promociones, fallos, negaciones y
+     * resúmenes. No se usa como única condición: la frase positiva sigue siendo obligatoria.
+     */
+    private val REJECTED_CONTEXT = Regex(
+        """\b(?:pagaste|enviaste|has\s+pagado|has\s+enviado|saldos?|promoci[oó]n(?:es)?|""" +
+            """promos?|fall[oó]|fallid[oa]|rechazad[oa]|pendiente|resúmenes?|resumen|""" +
+            """negad[oa]|anulad[oa]|cancelad[oa]|revertid[oa]|devoluci[oó]n|""" +
+            """no\s+te\s+pag[oó]|no\s+te\s+envi[oó]|no\s+se\s+pudo|no\s+recibiste)""" +
+            """(?=\s|$|[.,;:!?])""",
+        RegexOption.IGNORE_CASE,
+    )
 
     private val SENDER_PATTERNS = listOf(
         Regex("""^(.{2,60}?)\s+te\s+pag[oó](?=\s|$)""", RegexOption.IGNORE_CASE),
@@ -162,5 +296,9 @@ object NotificationParser {
             RegexOption.IGNORE_CASE,
         ),
         Regex("""^pago\s+de\s+(.{2,60}?)\s*[:\-]""", RegexOption.IGNORE_CASE),
+    )
+
+    private val TOKEN_TRAILING_PUNCTUATION = charArrayOf(
+        '.', ',', ';', ':', '!', '?', ')', ']', '}', '»', '”', '"',
     )
 }

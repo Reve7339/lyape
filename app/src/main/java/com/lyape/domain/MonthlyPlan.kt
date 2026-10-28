@@ -22,6 +22,8 @@ enum class GoalMode {
     BY_MONTH,
 }
 
+enum class GoalType { INCOME, PROFIT }
+
 /** Gasto aplicado al mes mostrado. Es planificación y nunca se convierte en movimiento. */
 data class MonthlyExpense(
     val id: UUID,
@@ -45,10 +47,11 @@ fun annualExpenseShare(annualCents: Long, monthValue: Int): Long {
     return base + if (monthValue <= remainder) 1L else 0L
 }
 
-/** Meta opcional de ingresos de un mes. */
+/** Importe deseado según su tipo; nunca guarda gastos + ganancia como importe escrito. */
 data class MonthlyGoal(
     val month: YearMonth,
     val amountCents: Long,
+    val type: GoalType = GoalType.INCOME,
 )
 
 data class MonthlyPlan(
@@ -56,6 +59,8 @@ data class MonthlyPlan(
     val expenses: List<MonthlyExpense>,
     val goal: MonthlyGoal?,
     val goalMode: GoalMode = GoalMode.BY_MONTH,
+    val fixedGoal: MonthlyGoal? = null,
+    val monthlyGoal: MonthlyGoal? = null,
 ) {
     companion object {
         fun empty(month: YearMonth): MonthlyPlan = MonthlyPlan(
@@ -76,6 +81,10 @@ data class MonthlyProgress(
     val goalCents: Long?,
     val goalRemainingCents: Long?,
     val goalExceededCents: Long?,
+    val goalType: GoalType = GoalType.INCOME,
+    val requiredIncomeCents: Long? = goalCents,
+    val signedProfitCents: Long = 0L,
+    val calculationError: Boolean = false,
 ) {
     val hasExpenses: Boolean get() = expensesRemainingCents != null
     val expensesCovered: Boolean get() = hasExpenses && expensesRemainingCents == 0L
@@ -86,15 +95,25 @@ data class MonthlyProgress(
 /** Reglas únicas para el umbral de gastos y la meta mensual. */
 object MonthlyProgressCalculator {
 
-    fun calculate(incomeCents: Long, plan: MonthlyPlan): MonthlyProgress {
+    fun calculate(incomeCents: Long, plan: MonthlyPlan): MonthlyProgress = try {
+        calculateExact(incomeCents, plan)
+    } catch (_: ArithmeticException) {
+        // Nunca presentar un objetivo saturado como alcanzado.
+        MonthlyProgress(incomeCents, 0L, null, null, null, null, null, calculationError = true)
+    }
+
+    private fun calculateExact(incomeCents: Long, plan: MonthlyPlan): MonthlyProgress {
         val totalExpenses = plan.expenses.fold(0L) { total, expense ->
             require(expense.amountCents >= 0L) { "Un gasto aplicado al mes no puede ser negativo." }
-            saturatedAdd(total, expense.amountCents)
+            Math.addExact(total, expense.amountCents)
         }
         val hasExpenses = plan.expenses.isNotEmpty()
         val goal = plan.goal?.also {
-            require(it.amountCents > 0L) { "La meta de ingresos debe ser positiva." }
+            require(it.amountCents > 0L) { "La meta debe ser positiva." }
         }?.amountCents
+        val type = plan.goal?.type ?: GoalType.INCOME
+        val target = goal?.let { if (type == GoalType.PROFIT) Math.addExact(totalExpenses, it) else it }
+        val profit = Math.subtractExact(incomeCents, totalExpenses)
 
         return MonthlyProgress(
             incomeCents = incomeCents,
@@ -106,23 +125,16 @@ object MonthlyProgressCalculator {
                 null
             },
             goalCents = goal,
-            goalRemainingCents = goal?.let { remaining(it, incomeCents) },
-            goalExceededCents = goal?.takeIf { incomeCents >= it }?.let { incomeCents - it },
+            goalRemainingCents = target?.let { remaining(it, incomeCents) },
+            goalExceededCents = target?.takeIf { incomeCents >= it }?.let { Math.subtractExact(incomeCents, it) },
+            goalType = type,
+            requiredIncomeCents = target,
+            signedProfitCents = profit,
         )
     }
 
     private fun remaining(target: Long, current: Long): Long {
         if (current >= target) return 0L
-        return try {
-            Math.subtractExact(target, current)
-        } catch (_: ArithmeticException) {
-            Long.MAX_VALUE
-        }
-    }
-
-    private fun saturatedAdd(left: Long, right: Long): Long = try {
-        Math.addExact(left, right)
-    } catch (_: ArithmeticException) {
-        Long.MAX_VALUE
+        return Math.subtractExact(target, current)
     }
 }

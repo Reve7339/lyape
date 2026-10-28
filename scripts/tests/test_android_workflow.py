@@ -27,7 +27,7 @@ class AndroidWorkflowTest(unittest.TestCase):
         return match[1]
 
     def test_every_job_prepares_sdk_before_android_commands(self):
-        for name in ("unit", "android", "delivery"):
+        for name in ("unit", "android", "play_bundle", "delivery"):
             with self.subTest(job=name):
                 job = self.job(name)
                 self.assertIn(SDK_ACTION, job, "No asumir un SDK preinstalado en el runner")
@@ -37,7 +37,7 @@ class AndroidWorkflowTest(unittest.TestCase):
                 self.assertNotIn("run: sdkmanager", job)
 
     def test_sdk_step_pins_tools_and_requests_all_build_packages(self):
-        for name in ("unit", "android", "delivery"):
+        for name in ("unit", "android", "play_bundle", "delivery"):
             with self.subTest(job=name):
                 steps = re.split(r"^      - ", self.job(name), flags=re.MULTILINE)
                 sdk = next((s for s in steps if SDK_ACTION in s), "")
@@ -45,7 +45,7 @@ class AndroidWorkflowTest(unittest.TestCase):
                 packages = re.search(r"packages: '([^']+)'", sdk)
                 self.assertIsNotNone(packages)
                 self.assertEqual(
-                    {"platforms;android-35", "build-tools;35.0.0", "platform-tools"},
+                    {"platforms;android-36", "build-tools;35.0.0", "platform-tools"},
                     set(packages[1].split()),
                 )
 
@@ -61,7 +61,7 @@ class AndroidWorkflowTest(unittest.TestCase):
         )
 
     def test_all_gradle_calls_use_ci_budget_without_reusable_daemons(self):
-        for name in ("unit", "android", "delivery"):
+        for name in ("unit", "android", "play_bundle", "delivery"):
             commands = re.findall(r"^\s*(\./gradlew[^\n]*)$", self.job(name), re.MULTILINE)
             self.assertTrue(commands, f"Faltan invocaciones Gradle en {name}")
             for command in commands:

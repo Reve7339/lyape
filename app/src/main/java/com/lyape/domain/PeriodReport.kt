@@ -24,14 +24,17 @@ enum class ReportPeriod {
 data class PeriodBar(
     val label: String,
     val amountCents: Long,
+    /** La suma de este grupo no cabe en `Long`; no debe dibujarse como cero. */
+    val calculationError: Boolean = false,
 )
 
 /**
  * Resultado del resumen de un periodo.
  *
- * Los importes siguen en céntimos: la conversión a `Float` ocurre únicamente al dibujar. Las
- * barras están ordenadas y su suma coincide exactamente con [Totals.businessCents] porque cada
- * movimiento cae en un único grupo.
+ * Los importes siguen en céntimos: la conversión a `Float` ocurre únicamente al dibujar. Cuando
+ * [calculationError] es `false`, las barras están ordenadas y su suma coincide exactamente con
+ * [Totals.businessCents] porque cada movimiento cae en un único grupo. Si una suma no cabe en
+ * `Long`, no se sustituye por cero: se marca el error y la interfaz no dibuja importes dudosos.
  */
 data class PeriodReport(
     val period: ReportPeriod,
@@ -46,6 +49,10 @@ data class PeriodReport(
     val pendingActiveCount: Int,
 ) {
     val hasBusinessMovements: Boolean get() = businessMovementCount > 0
+
+    /** La lectura contiene una suma fuera de rango; la UI debe mostrar un error local. */
+    val calculationError: Boolean
+        get() = totals.calculationError || bars.any { it.calculationError }
 
     /** Mes del plan que corresponde al periodo consultado. */
     val month: YearMonth get() = YearMonth.from(startDate)
@@ -94,9 +101,11 @@ object PeriodReportCalculator {
         }
 
         val bars = groups.mapIndexed { index, group ->
+            val groupTotals = TotalsCalculator.totalFor(group)
             PeriodBar(
                 label = labels[index],
-                amountCents = TotalsCalculator.totalFor(group).businessCents,
+                amountCents = groupTotals.businessCents,
+                calculationError = groupTotals.calculationError,
             )
         }
 

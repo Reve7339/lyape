@@ -22,6 +22,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
@@ -32,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -79,6 +85,7 @@ internal fun MovementCounts.filterCounts(): Map<MovementFilter, Int> = mapOf(
 )
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 fun MovementsScreen(
     onOpenMovement: (String) -> Unit,
     onAddManual: () -> Unit,
@@ -86,6 +93,7 @@ fun MovementsScreen(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onEditMovement: (String) -> Unit = onOpenMovement,
     viewModel: MovementsViewModel = viewModel(),
 ) {
     var filter by rememberSaveable { mutableStateOf(MovementFilter.ALL) }
@@ -93,6 +101,9 @@ fun MovementsScreen(
     val countsState by remember(viewModel, retryKey) { viewModel.counts }
         .collectAsStateWithLifecycle(initialValue = MovementCountsState.Loading)
     val movements = viewModel.movements.collectAsLazyPagingItems()
+    val busy by viewModel.actions.busy.collectAsStateWithLifecycle()
+    val snackbars = remember { SnackbarHostState() }
+    LaunchedEffect(viewModel) { viewModel.actions.feedback.collect { snackbars.showSnackbar(it) } }
     val normalizedQuery = remember(searchQuery) { normalizeForSearch(searchQuery) }
     val totals = (countsState as? MovementCountsState.Content)?.counts ?: MovementCounts()
     val counts = remember(totals) { totals.filterCounts() }
@@ -178,6 +189,9 @@ fun MovementsScreen(
                                 isFirst = index == 0,
                                 isLast = index == movements.itemCount - 1,
                                 onClick = { onOpenMovement(movement.id) },
+                                busy = movement.id in busy,
+                                onAction = { viewModel.actions.perform(movement.id, it) },
+                                onEdit = { onEditMovement(movement.id) },
                             )
                         }
                     }
@@ -240,6 +254,7 @@ fun MovementsScreen(
                 // etiqueta visible no llega a TalkBack; se declara el nombre aquí.
                 .semantics { contentDescription = "Agregar" },
         )
+        SnackbarHost(snackbars, Modifier.align(Alignment.BottomCenter).padding(bottom = 88.dp))
     }
 }
 
@@ -250,16 +265,37 @@ private fun MovementListItem(
     isFirst: Boolean,
     isLast: Boolean,
     onClick: () -> Unit,
+    busy: Boolean,
+    onAction: (MovementAction) -> Unit,
+    onEdit: () -> Unit,
 ) {
     val shape = listSegmentShape(isFirst, isLast)
-    MovementRow(
-        movement = movement,
-        onClick = onClick,
-        modifier = Modifier
+    var menu by remember(movement.id) { mutableStateOf(false) }
+    Box(
+        modifier = Modifier.fillMaxWidth()
             .clip(shape)
             .background(MaterialTheme.colorScheme.surface)
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape),
-    )
+    ) {
+        MovementRow(movement, onClick, actions = {
+        Box {
+            IconButton(onClick = { menu = true }, enabled = !busy, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Default.MoreVert, contentDescription = "Acciones de ${movement.title}")
+            }
+            DropdownMenu(expanded = menu && !busy, onDismissRequest = { menu = false }) {
+                if (movement.isExcluded) {
+                    DropdownMenuItem(text = { Text("Restaurar") }, onClick = { menu = false; onAction(MovementAction.RESTORE) })
+                } else {
+                    val personal = movement.classification != MovementClassification.PERSONAL
+                    DropdownMenuItem(text = { Text(if (personal) "Marcar personal" else "Marcar negocio") },
+                        onClick = { menu = false; onAction(if (personal) MovementAction.PERSONAL else MovementAction.BUSINESS) })
+                    DropdownMenuItem(text = { Text("Anular") }, onClick = { menu = false; onAction(MovementAction.EXCLUDE) })
+                }
+                DropdownMenuItem(text = { Text("Editar") }, onClick = { menu = false; onEdit() })
+            }
+        }
+        })
+    }
 }
 
 /** Esquinas redondeadas solo en los extremos del grupo. Coincide con `shapes.large` del tema. */
@@ -310,7 +346,7 @@ private fun SearchField(
     OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,
-        label = { Text("Buscar por remitente, descripción o motivo") },
+        label = { Text("Buscar movimientos") },
         leadingIcon = {
             Icon(imageVector = Icons.Filled.Search, contentDescription = null)
         },

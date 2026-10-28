@@ -28,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
@@ -116,7 +117,12 @@ private fun Avatar(label: String, muted: Boolean, modifier: Modifier = Modifier)
             .background(background),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = label, style = MoneyTextStyle, color = content)
+        Text(
+            text = label,
+            style = MoneyTextStyle,
+            color = content,
+            modifier = Modifier.clearAndSetSemantics { },
+        )
     }
 }
 
@@ -129,6 +135,7 @@ fun MovementRow(
     movement: MovementUi,
     onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    actions: (@Composable () -> Unit)? = null,
 ) {
     val excluded = movement.isExcluded
     val clickable = if (onClick != null) {
@@ -144,8 +151,6 @@ fun MovementRow(
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val amount = formatSignedCents(movement.amountCents)
-    val titleStyle = MaterialTheme.typography.titleMedium
-    val originStyle = MaterialTheme.typography.bodySmall
     val amountWidth = with(density) {
         measurer.measure(AnnotatedString(amount), MoneyTextStyle, softWrap = false).size.width.toDp()
     }
@@ -156,16 +161,6 @@ fun MovementRow(
             softWrap = false,
         ).size.width.toDp()
     } + 20.dp
-    val longestTitleWord = movement.title.split(Regex("\\s+"))
-        .maxOfOrNull { measurer.measure(AnnotatedString(it), titleStyle, softWrap = false).size.width }
-        ?: 0
-    val longestOriginWord = movement.originLabel.split(Regex("\\s+"))
-        .maxOfOrNull { measurer.measure(AnnotatedString(it), originStyle, softWrap = false).size.width }
-        ?: 0
-    val minimumTextWidth = maxOf(
-        120.dp,
-        with(density) { maxOf(longestTitleWord, longestOriginWord).toDp() },
-    )
 
     BoxWithConstraints(
         modifier = modifier
@@ -174,8 +169,10 @@ fun MovementRow(
             .heightIn(min = 64.dp)
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
-        // Mantener las columnas solo mientras nombre y origen tengan un ancho legible.
-        val stacked = maxWidth - 40.dp - 24.dp - maxOf(amountWidth, tagWidth) < minimumTextWidth
+        // El menú comparte la columna del importe, dejando espacio para las iniciales.
+        val amountColumnWidth = maxOf(amountWidth, tagWidth)
+        val layout = movementRowLayout(maxWidth.value, amountColumnWidth.value)
+        val stacked = layout == MovementRowLayout.STACKED
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = if (stacked) Alignment.Top else Alignment.CenterVertically,
@@ -186,11 +183,11 @@ fun MovementRow(
                 MovementDescription(movement)
                 if (stacked) {
                     Spacer(Modifier.height(8.dp))
-                    MovementAmount(movement, amount)
+                    MovementAmount(movement, amount, actions = actions)
                 }
             }
             if (!stacked) {
-                MovementAmount(movement, amount, horizontalAlignment = Alignment.End)
+                MovementAmount(movement, amount, horizontalAlignment = Alignment.End, actions = actions)
             }
         }
     }
@@ -202,6 +199,8 @@ private fun MovementDescription(movement: MovementUi) {
         text = movement.title,
         style = MaterialTheme.typography.titleMedium,
         color = MaterialTheme.colorScheme.onSurface,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
     )
     movement.supportingLabel?.let { label ->
         Spacer(Modifier.height(2.dp))
@@ -215,10 +214,13 @@ private fun MovementDescription(movement: MovementUi) {
     }
     Spacer(Modifier.height(2.dp))
     Text(
-        text = "${movement.originLabel} · ${movement.timeLabel}",
+        text = movement.dateTimeLabel,
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+    val account = listOfNotNull(movement.accountLabel, movement.mediumLabel).distinct().joinToString(" · ")
+    if (account.isNotBlank()) Text(account, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 2, overflow = TextOverflow.Ellipsis)
 }
 
 @Composable
@@ -226,6 +228,7 @@ private fun MovementAmount(
     movement: MovementUi,
     amount: String,
     horizontalAlignment: Alignment.Horizontal = Alignment.Start,
+    actions: (@Composable () -> Unit)? = null,
 ) {
     Column(horizontalAlignment = horizontalAlignment) {
         Text(
@@ -239,6 +242,7 @@ private fun MovementAmount(
         )
         Spacer(Modifier.height(4.dp))
         ClassificationTag(movement.classification)
+        actions?.invoke()
     }
 }
 

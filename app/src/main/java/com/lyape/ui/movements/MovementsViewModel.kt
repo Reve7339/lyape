@@ -4,21 +4,17 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
-import androidx.paging.cachedIn
-import androidx.paging.map
 import com.lyape.LyapeApplication
 import com.lyape.domain.MovementClassification
 import com.lyape.domain.MovementCounts
 import com.lyape.ui.model.MovementUi
-import com.lyape.ui.model.toUi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOn
+import java.util.UUID
 
 sealed interface MovementCountsState {
     data object Loading : MovementCountsState
@@ -34,14 +30,26 @@ internal data class HistoryQuery(
 class MovementsViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = (application as LyapeApplication).movementRepository
     private val query = MutableStateFlow(HistoryQuery())
+    internal val actions = MovementActions(viewModelScope) { id, action ->
+        val uuid = UUID.fromString(id)
+        when (action) {
+            MovementAction.PERSONAL -> repository.classify(uuid, MovementClassification.PERSONAL)
+            MovementAction.BUSINESS -> repository.classify(uuid, MovementClassification.BUSINESS)
+            MovementAction.EXCLUDE -> repository.exclude(uuid)
+            MovementAction.RESTORE -> repository.restore(uuid)
+        }
+    }
+    private val accounts = (application as LyapeApplication).accountsRepository.observeSelectableAccounts()
+        .catch { emit(emptyList()) }
 
     // Un solo caché acotado. Cambiar consulta cancela la generación anterior.
     @OptIn(ExperimentalCoroutinesApi::class)
-    val movements: Flow<PagingData<MovementUi>> = query
-        .flatMapLatest { repository.history(it.classification, it.text) }
-        .map { page -> page.map { it.toUi() } }
-        .flowOn(Dispatchers.Default)
-        .cachedIn(viewModelScope)
+    val movements: Flow<PagingData<MovementUi>> = movementPagesWithAccounts(
+        query.flatMapLatest { repository.history(it.classification, it.text) },
+        accounts,
+        viewModelScope,
+        use24Hour = android.text.format.DateFormat.is24HourFormat(application),
+    )
 
     fun updateQuery(classification: MovementClassification?, text: String) {
         query.value = HistoryQuery(classification, normalizeForSearch(text))

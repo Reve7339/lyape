@@ -2,4 +2,39 @@
 <resources>
     <string name="app_name">LYape</string>
     <string name="notification_listener_label">Captura de pagos</string>
+
+    <string name="privacy_title">Privacidad</string>
+    <string name="privacy_policy_title">Política de privacidad</string>
+    <string name="privacy_read_policy">Leer política de privacidad</string>
+    <string name="capture_disclosure_title">Acceso a tus notificaciones</string>
+    <string name="capture_disclosure_body">LYape leerá las notificaciones de Yape y de Plin en Interbank para registrar monto, remitente y fecha, incluso cuando no estés viendo la app. Los registros se guardan en este dispositivo; LYape no los envía a servidores.\n\nPuedes pausar la captura o revocar el acceso en Android. El resto de la app funciona sin este permiso.</string>
+    <string name="capture_disclosure_continue">Aceptar y continuar</string>
+    <string name="capture_disclosure_cancel">Ahora no</string>
+    <string name="privacy_local">Solo en este dispositivo. Sin respaldo automático.</string>
+    <string name="privacy_details">Guarda monto, remitente y fecha; no la notificación completa. Sin registro de usuario, servidores ni publicidad.</string>
+    <string name="privacy_voice">La voz usa el motor del teléfono y solo recibe el medio y el monto. LYape elige voces declaradas locales, pero el motor instalado es un componente aparte y puede tener su propia política.</string>
+
+    <string name="voice_channel_name">Avisos de voz</string>
+    <string name="voice_channel_description">Mantiene activos los avisos de voz mientras la sesión está encendida.</string>
+    <string name="voice_notification_active">Avisos de voz activos</string>
+    <string name="voice_notification_preparing">Preparando voz…</string>
+    <string name="voice_notification_text">Lee el medio y el monto. Toca para administrar.</string>
+    <string name="voice_notification_disable">Desactivar</string>
+
+    <string name="capture_issue_save_failed">No se pudo confirmar el guardado de un pago. Revisa tus movimientos.</string>
+    <string name="capture_issue_capture_failed">No se pudo procesar un aviso de pago. Puede que no se haya guardado.</string>
+    <string name="capture_issue_account_unavailable">La captura no tiene una cuenta receptora válida. Revisa Cuentas.</string>
+    <string name="capture_health_review_movements">Revisar movimientos</string>
+    <string name="capture_health_review_accounts">Revisar cuentas</string>
+    <string name="capture_health_dismiss">Entendido</string>
+
+    <string name="movement_attempt_conflict">Este intento ya se guardó con otros datos. Revisa Movimientos antes de crear otro.</string>
+    <string name="movement_edit_conflict">El movimiento cambió mientras editabas. Vuelve a abrirlo para revisar los cambios.</string>
+    <string name="movement_edit_missing">El movimiento ya no existe.</string>
+    <string name="movement_save_error">No pudimos guardar el movimiento. Vuelve a intentarlo.</string>
+    <string name="movement_edit_save_error">No pudimos guardar los cambios. Vuelve a intentarlo.</string>
+    <string name="movement_invalid_data">Revisa los datos del movimiento.</string>
+
+    <string name="accounts_capture_check_error">No se pudo comprobar la captura de pagos.</string>
+    <string name="accounts_capture_check_retry">Reintentar</string>
 </resources>

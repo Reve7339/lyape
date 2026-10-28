@@ -127,14 +127,14 @@ class MonthlyProgressCalculatorTest {
     }
 
     @Test
-    fun `satura sumas y faltantes extremos sin desbordar`() {
+    fun `informa desbordamiento sin presentar cifras saturadas`() {
         val result = calculate(
             income = Long.MIN_VALUE,
             expenses = listOf(Long.MAX_VALUE, 1),
         )
 
-        assertEquals(Long.MAX_VALUE, result.totalExpensesCents)
-        assertEquals(Long.MAX_VALUE, result.expensesRemainingCents)
+        assertTrue(result.calculationError)
+        assertFalse(result.goalReached)
     }
 
     private fun calculate(

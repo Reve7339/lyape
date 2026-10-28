@@ -6,6 +6,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.lyape.domain.MovementClassification
 import com.lyape.domain.MovementSource
+import com.lyape.domain.PaymentMedium
 import com.lyape.domain.movementTitle
 import com.lyape.domain.normalizeMovementSearch
 import java.time.Instant
@@ -19,7 +20,7 @@ import java.util.UUID
  */
 @Entity(
     tableName = "movements",
-    indices = [Index("occurredAt"), Index(value = ["occurredAt", "createdAt", "id"])],
+    indices = [Index("occurredAt"), Index(value = ["occurredAt", "createdAt", "id"]), Index(value = ["accountId", "occurredAt", "classification"])],
 )
 data class MovementEntity(
     @PrimaryKey val id: UUID,
@@ -49,4 +50,10 @@ data class MovementEntity(
     val searchReason: String = normalizeMovementSearch(
         if (source == MovementSource.ADJUSTMENT) adjustmentReason.orEmpty() else "",
     ),
+    val accountId: String? = null,
+    @ColumnInfo(defaultValue = "'UNKNOWN'")
+    val medium: PaymentMedium = PaymentMedium.UNKNOWN,
+    @ColumnInfo(defaultValue = "0")
+    val editVersion: Long = 0L,
+    val lastEditAttemptId: UUID? = null,
 )

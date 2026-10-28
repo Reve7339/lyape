@@ -15,6 +15,9 @@ val releaseSigning = listOf(
     "LYAPE_RELEASE_KEY_PASSWORD",
 ).associateWith { providers.environmentVariable(it).orNull }
 val hasReleaseSigning = releaseSigning.values.any { it != null }
+if (providers.gradleProperty("lyape.requireReleaseSigning").orNull == "true") {
+    require(hasReleaseSigning) { "El AAB para Play requiere la clave de publicación; no se usa firma debug." }
+}
 if (hasReleaseSigning) {
     require(releaseSigning.values.all { !it.isNullOrBlank() }) {
         "La configuración de firma release está incompleta."
@@ -23,15 +26,15 @@ if (hasReleaseSigning) {
 
 android {
     namespace = "com.lyape"
-    compileSdk = 35
+    compileSdk = 36
     buildToolsVersion = "35.0.0"
 
     defaultConfig {
         applicationId = "com.lyape"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 1
-        versionName = "0.0.1"
+        targetSdk = 36
+        versionCode = 2
+        versionName = "0.0.2"
         testInstrumentationRunner = "com.lyape.testing.EmulatorTestRunner"
     }
 
@@ -65,6 +68,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     sourceSets {
@@ -111,6 +115,7 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 
     androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(platform(libs.androidx.compose.bom))
@@ -118,4 +123,6 @@ dependencies {
     androidTestImplementation(libs.androidx.test.espresso.core)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
+    // Paging de Android llama a android.util.Log incluso al cargar una fuente falsa.
+    androidTestImplementation(libs.kotlinx.coroutines.test)
 }

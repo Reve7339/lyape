@@ -21,6 +21,10 @@ fun MovementEntity.toDomain(): Movement = Movement(
     deduplicationHash = deduplicationHash,
     isEdited = isEdited,
     previousClassification = previousClassification,
+    accountId = accountId,
+    medium = medium,
+    editVersion = editVersion,
+    lastEditAttemptId = lastEditAttemptId,
 )
 
 fun Movement.toEntity(): MovementEntity = MovementEntity(
@@ -41,4 +45,8 @@ fun Movement.toEntity(): MovementEntity = MovementEntity(
     createdAt = createdAt,
     updatedAt = updatedAt,
     previousClassification = previousClassification,
+    accountId = accountId,
+    medium = medium,
+    editVersion = editVersion,
+    lastEditAttemptId = lastEditAttemptId,
 )

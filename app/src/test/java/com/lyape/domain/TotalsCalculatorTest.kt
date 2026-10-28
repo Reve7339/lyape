@@ -1,6 +1,7 @@
 package com.lyape.domain
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
@@ -110,6 +111,55 @@ class TotalsCalculatorTest {
         )
 
         assertEquals(1_000, TotalsCalculator.businessTotalCents(movements))
+    }
+
+    @Test
+    fun `una suma final representable no depende del orden`() {
+        val movements = listOf(
+            movement(Long.MAX_VALUE),
+            movement(1),
+            movement(-1),
+        )
+
+        assertEquals(Long.MAX_VALUE, TotalsCalculator.totalFor(movements).businessCents)
+        assertEquals(
+            Long.MAX_VALUE,
+            TotalsCalculator.totalFor(movements.reversed()).businessCents,
+        )
+    }
+
+    @Test
+    fun `un total de negocio fuera de rango se marca como error y no se satura`() {
+        val totals = TotalsCalculator.totalFor(
+            listOf(
+                movement(Long.MAX_VALUE),
+                movement(1),
+            ),
+        )
+
+        assertEquals(0L, totals.businessCents)
+        assertTrue(totals.calculationError)
+        assertEquals(2, totals.movementCount)
+    }
+
+    @Test
+    fun `un total personal fuera de rango se marca como error`() {
+        val totals = TotalsCalculator.totalFor(
+            listOf(
+                movement(Long.MIN_VALUE, MovementClassification.PERSONAL),
+                movement(-1, MovementClassification.PERSONAL),
+            ),
+        )
+
+        assertEquals(0L, totals.personalCents)
+        assertTrue(totals.calculationError)
+    }
+
+    @Test(expected = ArithmeticException::class)
+    fun `businessTotalCents falla de forma explícita si no cabe`() {
+        TotalsCalculator.businessTotalCents(
+            listOf(movement(Long.MAX_VALUE), movement(1)),
+        )
     }
 
     @Test

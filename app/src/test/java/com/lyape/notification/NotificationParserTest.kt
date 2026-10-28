@@ -54,6 +54,15 @@ class NotificationParserTest {
     }
 
     @Test
+    fun `acepta una transferencia recibida como cobro`() {
+        val result = parsed(
+            ProvisionalNotificationFixtures.input(text = "Recibiste una transferencia de S/ 10.00"),
+        )
+
+        assertEquals(1_000L, result.amountCents)
+    }
+
+    @Test
     fun `acepta la coma como separador decimal`() {
         val result = parsed(ProvisionalNotificationFixtures.commaDecimal)
 
@@ -177,5 +186,210 @@ class NotificationParserTest {
         val second = parsed(ProvisionalNotificationFixtures.input(text = "Recibiste S/ 20.00"))
 
         assertNotEquals(first.fingerprint, second.fingerprint)
+    }
+
+    @Test
+    fun `rechaza monto cero`() {
+        assertEquals(
+            ParseResult.Unknown,
+            NotificationParser.parse(ProvisionalNotificationFixtures.input(text = "Recibiste S/ 0.00")),
+        )
+    }
+
+    @Test
+    fun `rechaza monto negativo`() {
+        assertEquals(
+            ParseResult.Unknown,
+            NotificationParser.parse(ProvisionalNotificationFixtures.input(text = "Recibiste S/ -5.00")),
+        )
+    }
+
+    @Test
+    fun `rechaza contextos de envio saldo promocion fallo o negacion`() {
+        listOf(
+            "Pagaste S/ 10.00",
+            "Enviaste un pago por S/ 10.00",
+            "Tu saldo es S/ 10.00",
+            "Tus saldos suman S/ 10.00",
+            "Promoción: recibe S/ 10.00",
+            "Promociones con S/ 10.00",
+            "El pago falló por S/ 10.00",
+            "Pago anulado: S/ 10.00",
+            "No recibiste el pago de S/ 10.00",
+            "No te pagó aún: S/ 10.00",
+            "No te llegó un pago por S/ 10.00",
+            "Nunca recibiste un pago por S/ 10.00",
+            "Aún no te pagó: S/ 10.00",
+            "Todavía no te envió un pago por S/ 10.00",
+            "No se te pagó el pago de S/ 10.00",
+            "Resumen de tu pago de S/ 10.00",
+            "Resúmenes con S/ 10.00",
+        ).forEach { text ->
+            assertEquals(
+                "No debe aceptar: $text",
+                ParseResult.Unknown,
+                NotificationParser.parse(ProvisionalNotificationFixtures.input(text = text)),
+            )
+        }
+    }
+
+    @Test
+    fun `un cupon o descuento recibido no es un pago`() {
+        listOf(
+            "Recibiste un cupón de S/ 10.00",
+            "Recibiste un descuento de S/ 10.00",
+            "Recibiste un beneficio de S/ 10.00",
+            "Recibiste un premio por S/ 10.00",
+        ).forEach { text ->
+            assertEquals(
+                "No debe aceptar: $text",
+                ParseResult.Unknown,
+                NotificationParser.parse(ProvisionalNotificationFixtures.input(text = text)),
+            )
+        }
+    }
+
+    @Test
+    fun `acepta un titulo generico con cuerpo de cobro`() {
+        val input = ProvisionalNotificationFixtures.input(
+            title = "Yape",
+            text = "Nuevo pago recibido",
+            expandedText = "Recibiste un pago por S/ 10.00",
+        )
+
+        val result = parsed(input)
+
+        assertEquals(1_000L, result.amountCents)
+        assertNull(result.senderName)
+    }
+
+    @Test
+    fun `rechaza dos operaciones sin remitente aunque compartan monto`() {
+        val input = ProvisionalNotificationFixtures.input(
+            text = "Recibiste un pago por S/ 10.00 en la cuenta 111",
+            expandedText = "Recibiste un pago por S/ 10.00 en la cuenta 222",
+        )
+
+        assertEquals(ParseResult.Unknown, NotificationParser.parse(input))
+    }
+
+    @Test
+    fun `acepta repeticion sin nombre y detalle fuera de la frase`() {
+        val input = ProvisionalNotificationFixtures.input(
+            text = "Recibiste un pago por S/ 10.00",
+            expandedText = "Recibiste un pago por S/ 10.00\nDetalle de la operación",
+        )
+
+        assertEquals(1_000L, parsed(input).amountCents)
+    }
+
+    @Test
+    fun `exige contexto de recepcion y no acepta solo un monto`() {
+        listOf(
+            "S/ 10.00",
+            "Yape S/ 10.00",
+            "Nuevo movimiento S/ 10.00",
+        ).forEach { text ->
+            assertEquals(
+                ParseResult.Unknown,
+                NotificationParser.parse(ProvisionalNotificationFixtures.input(text = text)),
+            )
+        }
+    }
+
+    @Test
+    fun `rechaza tokens parciales o con notacion no monetaria`() {
+        listOf(
+            "Recibiste S/ 10.00abc",
+            "Recibiste S/ 1e3",
+            "Recibiste S/ 10.000",
+            "Recibiste S/ 10.00.50",
+        ).forEach { text ->
+            assertEquals(
+                "No debe aceptar: $text",
+                ParseResult.Unknown,
+                NotificationParser.parse(ProvisionalNotificationFixtures.input(text = text)),
+            )
+        }
+    }
+
+    @Test
+    fun `rechaza dos operaciones en el mismo campo aunque compartan importe`() {
+        val input = ProvisionalNotificationFixtures.input(
+            text = "Recibiste S/ 10.00 y Ana te pagó S/ 10.00",
+        )
+
+        assertEquals(ParseResult.Unknown, NotificationParser.parse(input))
+    }
+
+    @Test
+    fun `rechaza remitentes contradictorios entre texto y expandido`() {
+        val input = ProvisionalNotificationFixtures.input(
+            text = "Ana te pagó S/ 10.00",
+            expandedText = "Luis te pagó S/ 10.00",
+        )
+
+        assertEquals(ParseResult.Unknown, NotificationParser.parse(input))
+    }
+
+    @Test
+    fun `acepta la repeticion identica de la misma operacion`() {
+        val input = ProvisionalNotificationFixtures.input(
+            text = "Ana te pagó S/ 10.00",
+            expandedText = "Ana te pagó S/ 10.00",
+        )
+
+        assertEquals(1_000L, parsed(input).amountCents)
+    }
+
+    @Test
+    fun `rechaza una evidencia mixta con un posible remitente no reconocido en el expandido`() {
+        val input = ProvisionalNotificationFixtures.input(
+            title = "Confirmación de Pago",
+            text = "Ana te pagó S/ 10.00",
+            expandedText = "Recibiste un pago de Luis por S/ 10.00",
+        )
+
+        assertEquals(ParseResult.Unknown, NotificationParser.parse(input))
+    }
+
+    @Test
+    fun `rechaza la posicion invertida de una evidencia mixta con remitente no reconocido`() {
+        val input = ProvisionalNotificationFixtures.input(
+            title = "Confirmación de Pago",
+            text = "Recibiste un pago de Luis por S/ 10.00",
+            expandedText = "Ana te pagó S/ 10.00",
+        )
+
+        assertEquals(ParseResult.Unknown, NotificationParser.parse(input))
+    }
+
+    @Test
+    fun `acepta un complemento sin remitente que solo repite la frase y el importe`() {
+        val input = ProvisionalNotificationFixtures.input(
+            text = "Ana te pagó S/ 10.00",
+            expandedText = "Recibiste S/ 10.00",
+        )
+
+        assertEquals(1_000L, parsed(input).amountCents)
+    }
+
+    @Test
+    fun `acepta un complemento generico con conector y el mismo importe`() {
+        val input = ProvisionalNotificationFixtures.input(
+            text = "Recibiste un pago por S/ 10.00",
+            expandedText = "Ana te pagó S/ 10.00",
+        )
+
+        assertEquals(1_000L, parsed(input).amountCents)
+    }
+
+    @Test
+    fun `acepta centimos y puntuacion legítima`() {
+        val result = parsed(
+            ProvisionalNotificationFixtures.input(text = "Recibiste un pago por S/ 0,01."),
+        )
+
+        assertEquals(1L, result.amountCents)
     }
 }

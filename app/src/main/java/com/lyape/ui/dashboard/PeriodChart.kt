@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -16,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
@@ -27,13 +29,12 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Constraints
 import com.lyape.domain.MonthlyChartCalculator
 import com.lyape.domain.MonthlyChartSeries
 import com.lyape.domain.MonthlyChartThresholdKind
@@ -55,6 +56,7 @@ fun PeriodChart(
     report: PeriodReport,
     progress: MonthlyProgress?,
     modifier: Modifier = Modifier,
+    unpaidExpensesCents: Long? = null,
 ) {
     val surface = MaterialTheme.colorScheme.surface
     val outline = MaterialTheme.colorScheme.outlineVariant
@@ -74,7 +76,28 @@ fun PeriodChart(
             )
             Spacer(Modifier.height(10.dp))
             if (report.period == ReportPeriod.MONTH) {
-                MonthlyProgressChart(report = report, progress = progress)
+                MonthlyProgressChart(report = report, progress = progress, unpaidExpensesCents = unpaidExpensesCents)
+                if (unpaidExpensesCents != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val pendingColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        Canvas(Modifier.width(24.dp).height(12.dp)) {
+                            drawLine(
+                                pendingColor,
+                                Offset(0f, size.height / 2),
+                                Offset(size.width, size.height / 2),
+                                strokeWidth = 2.dp.toPx(),
+                                pathEffect = pendingEffect,
+                            )
+                        }
+                        Text(
+                            text = "Por pagar ahora: ${formatCents(unpaidExpensesCents)}",
+                            modifier = Modifier.padding(start = 8.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = labelColor,
+                        )
+                    }
+                }
             } else {
                 BarsChart(report)
             }
@@ -178,7 +201,11 @@ private fun BarsChart(report: PeriodReport) {
  * meta. Las etiquetas de cada referencia viven en un margen derecho para no tapar la trayectoria.
  */
 @Composable
-private fun MonthlyProgressChart(report: PeriodReport, progress: MonthlyProgress?) {
+private fun MonthlyProgressChart(
+    report: PeriodReport,
+    progress: MonthlyProgress?,
+    unpaidExpensesCents: Long?,
+) {
     val positiveColor = MaterialTheme.colorScheme.primary
     val areaColor = MaterialTheme.colorScheme.primaryContainer
     val zeroColor = MaterialTheme.colorScheme.outlineVariant
@@ -186,14 +213,17 @@ private fun MonthlyProgressChart(report: PeriodReport, progress: MonthlyProgress
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
 
     val expenses = progress?.takeIf { it.hasExpenses }?.totalExpensesCents
-    val goal = progress?.takeIf { it.hasGoal }?.goalCents
+    val goal = progress?.takeIf { it.hasGoal }?.requiredIncomeCents
     val series = remember(report.bars, expenses, goal) {
         MonthlyChartCalculator.calculate(report.bars, expenses, goal)
     }
     val visibleLabels = remember(series.points.size) {
         PeriodReportCalculator.visibleLabelIndices(ReportPeriod.MONTH, series.points.size)
     }
-    val description = remember(report, progress) { monthlyChartDescription(report, progress) }
+    val description = remember(report, progress, unpaidExpensesCents) {
+        monthlyChartDescription(report, progress) +
+            (unpaidExpensesCents?.let { " Por pagar ahora: ${formatCents(it)}." } ?: "")
+    }
     val textMeasurer = rememberTextMeasurer()
 
     val axisStyle = MaterialTheme.typography.labelSmall.copy(color = labelColor)
@@ -201,28 +231,38 @@ private fun MonthlyProgressChart(report: PeriodReport, progress: MonthlyProgress
         color = inkColor,
         fontWeight = FontWeight.ExtraBold,
     )
-    val thresholdValueStyle = TextStyle(
+    val thresholdValueStyle = MaterialTheme.typography.labelSmall.copy(
         color = labelColor,
-        fontSize = 10.sp,
         fontWeight = FontWeight.Medium,
     )
+    val chartHeight = (196f * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
+
+    if (series.calculationError) {
+        Text(
+            text = "No se pudo dibujar el acumulado: supera el límite de cálculo.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+        return
+    }
 
     Canvas(
         modifier = Modifier
             .fillMaxWidth()
-            .height(196.dp)
+            .height(chartHeight)
             .semantics { contentDescription = description },
     ) {
         if (series.points.isEmpty()) return@Canvas
 
-        // Mide primero las etiquetas de referencia para reservar un margen que nunca las recorte,
-        // incluso con el texto del sistema aumentado o con importes largos.
+        // Limita el texto al margen real: importes largos se envuelven, no se dibujan
+        // fuera del Canvas cuando el margen llega a la mitad del ancho.
+        val labelConstraints = Constraints(maxWidth = (size.width * 0.5f - 10.dp.toPx()).toInt().coerceAtLeast(1))
         val thresholdLabels = series.thresholds.map { threshold ->
-            val name = if (threshold.kind == MonthlyChartThresholdKind.EXPENSES) "Gastos" else "Meta"
+            val name = if (threshold.kind == MonthlyChartThresholdKind.EXPENSES) "Gastos" else if (progress?.goalType == com.lyape.domain.GoalType.PROFIT) "Ingresos\nnecesarios" else "Meta de\ningresos"
             val color = if (threshold.kind == MonthlyChartThresholdKind.EXPENSES) inkColor else positiveColor
             ThresholdLabel(
-                nameLayout = textMeasurer.measure(name, thresholdNameStyle.copy(color = color)),
-                valueLayout = textMeasurer.measure(formatCents(threshold.amountCents), thresholdValueStyle),
+                nameLayout = textMeasurer.measure(name, thresholdNameStyle.copy(color = color), constraints = labelConstraints),
+                valueLayout = textMeasurer.measure(formatCents(threshold.amountCents), thresholdValueStyle, constraints = labelConstraints),
             )
         }
         val widestLabel = thresholdLabels
@@ -255,7 +295,13 @@ private fun MonthlyProgressChart(report: PeriodReport, progress: MonthlyProgress
         )
 
         // Referencias horizontales bajo el área, con trazo discontinuo para no confundirse con la línea.
-        val labelFractions = MonthlyChartCalculator.stackedLabelFractions(series, THRESHOLD_LABEL_GAP)
+        val tallestLabel = thresholdLabels.maxOfOrNull {
+            (it.nameLayout.size.height + it.valueLayout.size.height).toFloat()
+        } ?: 0f
+        val labelSpace = (size.height - tallestLabel).coerceAtLeast(1f)
+        val labelFractions = MonthlyChartCalculator.stackedLabelFractions(
+            series, ((tallestLabel + 8.dp.toPx()) / labelSpace).coerceAtMost(1f),
+        )
         series.thresholds.forEachIndexed { index, threshold ->
             val y = yOf(series.fractionOf(threshold.amountCents))
             val color = if (threshold.kind == MonthlyChartThresholdKind.EXPENSES) inkColor else positiveColor
@@ -273,7 +319,7 @@ private fun MonthlyProgressChart(report: PeriodReport, progress: MonthlyProgress
             drawThresholdLabel(
                 label = thresholdLabels[index],
                 x = plotRight + 6.dp.toPx(),
-                y = yOf(labelFractions[index]),
+                y = tallestLabel / 2f + (1f - labelFractions[index]) * labelSpace,
                 canvasHeight = size.height,
             )
         }
@@ -288,6 +334,19 @@ private fun MonthlyProgressChart(report: PeriodReport, progress: MonthlyProgress
             close()
         }
         drawPath(area, color = areaColor, alpha = 0.75f)
+
+        // Saldo pendiente actual, no una trayectoria histórica inventada. El coste original
+        // continúa visible en Gastos y sigue siendo la referencia del cálculo de ganancia.
+        unpaidExpensesCents?.let { pending ->
+            val y = yOf(series.fractionOf(pending))
+            drawLine(
+                color = labelColor,
+                start = Offset(plotLeft, y),
+                end = Offset(plotRight, y),
+                strokeWidth = 2.dp.toPx(),
+                pathEffect = pendingEffect,
+            )
+        }
 
         // Línea de acumulado.
         val line = Path().apply {
@@ -326,10 +385,9 @@ private fun MonthlyProgressChart(report: PeriodReport, progress: MonthlyProgress
     }
 }
 
-private const val THRESHOLD_LABEL_GAP = 0.16f
-
 private val dashedEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 9f), 0f)
 private val dottedEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 9f), 0f)
+private val pendingEffect = PathEffect.dashPathEffect(floatArrayOf(18f, 5f, 3f, 5f), 0f)
 
 private class ThresholdLabel(
     val nameLayout: TextLayoutResult,
@@ -391,11 +449,11 @@ private fun monthlyChartDescription(report: PeriodReport, progress: MonthlyProgr
             }
         }
         if (progress.hasGoal) {
-            val goal = progress.goalCents ?: 0L
+            val goal = progress.requiredIncomeCents ?: 0L
             parts += if (progress.goalReached) {
-                "Meta ${formatCents(goal)} alcanzada."
+                "Ingresos necesarios ${formatCents(goal)} alcanzados."
             } else {
-                "Meta ${formatCents(goal)}; faltan ${formatCents(progress.goalRemainingCents ?: 0L)}."
+                "Ingresos necesarios ${formatCents(goal)}; faltan ${formatCents(progress.goalRemainingCents ?: 0L)} de ingresos."
             }
         }
         if (progress.hasExpenses && progress.expensesCovered) {

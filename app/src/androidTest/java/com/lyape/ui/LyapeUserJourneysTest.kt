@@ -1,6 +1,8 @@
 package com.lyape.ui
 
 import androidx.compose.ui.semantics.Role
+import android.graphics.Bitmap
+import java.io.File
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
@@ -9,6 +11,7 @@ import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -16,8 +19,10 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.espresso.IdlingPolicies
@@ -73,12 +78,14 @@ class LyapeUserJourneysTest {
         tab("Movimientos")
         waitText("Todavía no hay movimientos.", substring = true)
         compose.onNodeWithContentDescription("Agregar").assertIsDisplayed()
-        tab("Cierre")
-        waitText("Cierre diario")
+        compose.onNodeWithText("Cierre diario").assertDoesNotExist()
+        compose.onNodeWithText("Cuentas y salidas").assertDoesNotExist()
+        tab("Cuentas")
+        waitText("Cuentas")
         tab("Ajustes")
         waitText("Privacidad")
-        tab("Resumen")
-        compose.onNode(tabMatcher("Resumen")).assertIsSelected()
+        tab("Inicio")
+        compose.onNode(tabMatcher("Inicio")).assertIsSelected()
     }
 
     @Test
@@ -110,9 +117,10 @@ class LyapeUserJourneysTest {
         click("Personal")
         awaitData { records().single().classification == MovementClassification.PERSONAL }
         compose.onNodeWithContentDescription("Volver").performClick()
-        tab("Resumen")
-        waitText("S/ 0.00")
-        compose.onNodeWithText("S/ 0.00").assertIsDisplayed()
+        tab("Inicio")
+        val income = hasText("Ingresos del mes") and hasText("S/ 0.00")
+        compose.waitUntil(10_000) { compose.onAllNodes(income).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(income).assertIsDisplayed()
     }
 
     @Test
@@ -142,7 +150,7 @@ class LyapeUserJourneysTest {
     @Test
     fun ui06NegativeAdjustmentRequiresAndDisplaysReason() {
         newMovement()
-        click("Ajuste")
+        click("Registrar un ajuste")
         click("− Resta")
         replace("Monto (S/)", "5.25")
         click("Guardar movimiento")
@@ -197,6 +205,23 @@ class LyapeUserJourneysTest {
     }
 
     @Test
+    fun ui08bEditRecreationKeepsTheSameAttemptAndSavesOnce() {
+        seed("Venta editable", 10_000)
+        openMovement("Venta editable")
+        click("Editar")
+        waitText("Editar movimiento")
+        replace("Monto (S/)", "125.25")
+        compose.activityRule.scenario.recreate()
+        waitText("Editar movimiento")
+        field("Monto (S/)").assertTextContains("125.25")
+        click("Guardar cambios")
+        waitText("Detalle del movimiento")
+        val stored = records().single()
+        assertEquals(12_525L, stored.amountCents)
+        assertEquals(1L, stored.editVersion)
+    }
+
+    @Test
     fun ui09SearchCombinesWithClassificationFilter() {
         seed("María Negocio", 1_000)
         seed("María Personal", 2_000, MovementClassification.PERSONAL)
@@ -204,7 +229,7 @@ class LyapeUserJourneysTest {
         tab("Movimientos")
         waitText("María Negocio")
         compose.onNodeWithContentDescription("Buscar movimientos").performClick()
-        replace("Buscar por remitente, descripción o motivo", "maria")
+        replace("Buscar movimientos", "maria")
         waitText("María Personal")
         compose.onNodeWithText("Otra venta").assertDoesNotExist()
         compose.onNodeWithText("Personal 1").performClick()
@@ -214,22 +239,20 @@ class LyapeUserJourneysTest {
         waitText("María Personal")
         compose.onNodeWithText("María Personal").assertExists()
         compose.onNodeWithText("María Negocio").assertDoesNotExist()
-        replace("Buscar por remitente, descripción o motivo", "nadie-coincide")
+        replace("Buscar movimientos", "nadie-coincide")
         waitText("No encontramos movimientos que coincidan con tu búsqueda.")
         compose.onNodeWithContentDescription("Cerrar búsqueda").performClick()
         waitText("María Personal")
     }
 
     @Test
-    fun ui10CloseAndReopenDayWithoutChangingMoney() {
+    fun ui10NoDailyClosingRequired() {
         seed("Venta cierre", 8_000)
-        tab("Cierre")
+        tab("Inicio")
+        compose.onNodeWithText("Revisar").assertDoesNotExist()
+        compose.onNodeWithText("Cierre diario").assertDoesNotExist()
+        tab("Movimientos")
         waitText("Venta cierre")
-        click("Marcar como revisado")
-        waitText("Reabrir el día")
-        assertTrue(records().single().reviewed)
-        click("Reabrir el día")
-        waitText("Marcar como revisado")
         assertFalse(records().single().reviewed)
         assertEquals(8_000L, records().single().amountCents)
     }
@@ -245,10 +268,10 @@ class LyapeUserJourneysTest {
         replace("Monto mensual (S/)", "100")
         compose.onNodeWithText("Guardar").performClick()
         waitText("Alquiler de prueba")
-        click("Fija mensual")
         click("Definir meta")
-        waitText("Meta fija mensual")
-        replace("Meta (S/)", "300", scroll = false)
+        waitText("Ganancia deseada (S/)")
+        click("Todos los meses")
+        replace("Ganancia deseada (S/)", "300", scroll = false)
         compose.onNodeWithText("Guardar").performClick()
         waitText("Quitar meta")
         assertEquals(30_000L, currentPlan().goal!!.amountCents)
@@ -282,10 +305,233 @@ class LyapeUserJourneysTest {
         waitText("Venta 1")
         compose.onNodeWithText("María antigua").assertDoesNotExist()
         compose.onNodeWithContentDescription("Buscar movimientos").performClick()
-        replace("Buscar por remitente, descripción o motivo", "maria")
+        replace("Buscar movimientos", "maria")
         waitText("María antigua")
         compose.onNodeWithText("Todos 200").assertExists()
         compose.onNodeWithText("Venta 1").assertDoesNotExist()
+    }
+
+    @Test
+    fun ui13ConfigureAccountWithoutChangingIncome() {
+        seed("Ingreso anterior", 2500)
+        tab("Cuentas")
+        waitText("Yape")
+        click("Yape")
+        waitText("Configurar saldo")
+        click("Configurar saldo")
+        replace("Negocio (S/)", "1000")
+        replace("Personal (S/)", "200")
+        click("Guardar saldo")
+        waitText("Actualizar saldo")
+        val yape = runBlocking { app.accountsRepository.observeAccount("yape").first() }!!
+        assertEquals(100_000L, yape.businessCents)
+        assertEquals(20_000L, yape.personalCents)
+        assertEquals(120_000L, yape.totalCents)
+        assertEquals(2500L, records().single().amountCents)
+    }
+
+    @Test
+    fun ui14TransferMovesBalanceWithoutCreatingIncome() {
+        runBlocking {
+            app.accountsRepository.setBalance("yape", 100_000, 20_000)
+            app.accountsRepository.setBalance("cash", 0, 0)
+        }
+        tab("Cuentas")
+        waitText("Yape")
+        compose.onNode(hasScrollToIndexAction())
+            .performScrollToNode(hasText("Transferir") and hasClickAction())
+        click("Transferir")
+        waitText("Transferencia")
+        replace("Importe (S/)", "100")
+        click("Registrar transferencia")
+        awaitData { runBlocking { app.accountsRepository.observeOperations().first().size == 1 } }
+        val summary = runBlocking { app.accountsRepository.observeSummary().first() }
+        assertEquals(120_000L, summary.totalCents)
+        assertEquals(100_000L, summary.businessCents)
+        assertEquals(10_000L, summary.accounts.first { it.id == "cash" }.businessCents)
+        assertTrue(records().isEmpty())
+    }
+
+    @Test
+    fun ui15PartialExpensePaymentPreservesBudgetAndIncome() {
+        val expense = runBlocking {
+            app.accountsRepository.setBalance("yape", 100_000, 20_000)
+            app.monthlyPlanRepository.addExpense(YearMonth.now(), "Luz de prueba", 15_000)
+        }
+        waitText("Ver plan")
+        click("Ver plan")
+        waitText("Luz de prueba")
+        click("Pagar")
+        waitText("Registra un pago que ya hiciste. LYape no mueve dinero.")
+        replace("Importe (S/)", "75")
+        click("Registrar pago")
+        awaitData {
+            runBlocking { app.accountsRepository.observeExpensePayments(YearMonth.now()).first()
+                .first { it.expenseId == expense }.paidCents == 7500L }
+        }
+        assertEquals(15_000L, currentPlan().expenses.single().amountCents)
+        assertEquals(92_500L, runBlocking { app.accountsRepository.observeAccount("yape").first() }!!.businessCents)
+        assertTrue(records().isEmpty())
+    }
+
+    @Test fun ui16QuickClassificationAndRestoreKeepPersonal() {
+        seed("Venta menú", 5000)
+        tab("Movimientos")
+        waitText("Venta menú")
+        compose.onNodeWithContentDescription("Acciones de Venta menú").performClick()
+        click("Marcar personal")
+        awaitData { records().single().classification == MovementClassification.PERSONAL }
+        compose.onNodeWithContentDescription("Acciones de Venta menú").performClick()
+        click("Anular")
+        awaitData { records().single().classification == MovementClassification.EXCLUDED }
+        compose.onNodeWithContentDescription("Acciones de Venta menú").performClick()
+        click("Restaurar")
+        awaitData { records().single().classification == MovementClassification.PERSONAL }
+        assertEquals(5000L, records().single().amountCents)
+    }
+
+    @Test fun ui17ManualPersonalWithExplicitAccount() {
+        runBlocking { app.accountsRepository.setBalance("cash", 0, 0) }
+        newMovement()
+        replace("Monto (S/)", "15")
+        click("Sin cuenta")
+        click("Efectivo")
+        click("Personal")
+        click("Guardar movimiento")
+        awaitData { records().size == 1 }
+        assertEquals("cash", records().single().accountId)
+        assertEquals(MovementClassification.PERSONAL, records().single().classification)
+        assertEquals(1500L, runBlocking { app.accountsRepository.observeAccount("cash").first() }!!.personalCents)
+    }
+
+    @Test fun ui18ThreeDigitAmountStaysRightOfName() {
+        seed("Venta de importe largo", 10000)
+        tab("Movimientos")
+        waitText("Venta de importe largo")
+        val name = compose.onNodeWithText("Venta de importe largo", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val amount = compose.onNodeWithText("+ S/ 100.00", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithText("VD", useUnmergedTree = true).assertIsDisplayed()
+        assertTrue("El importe debe quedar a la derecha del nombre", amount.left >= name.right)
+    }
+
+    @Test fun ui19GoalTypesShareOneRow() {
+        click("Crear plan")
+        click("Definir meta")
+        val profit = compose.onNodeWithText("Ganancia", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val income = compose.onNodeWithText("Ingresos", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue(income.left > profit.right)
+        assertEquals(profit.center.y, income.center.y, 2f)
+    }
+
+    @Test fun ui22PlinReadyWithoutAccountPicker() {
+        tab("Ajustes")
+        waitText("Captura de pagos")
+        compose.onNodeWithText("Se registra en Plin.").assertDoesNotExist()
+        compose.onNodeWithText("Plin · Interbank").assertDoesNotExist()
+        compose.onNodeWithText("Cambiar cuenta").assertDoesNotExist()
+        compose.onNodeWithText("Elegir cuenta de Interbank").assertDoesNotExist()
+        compose.onNodeWithText("Plin llega a tu banco").assertDoesNotExist()
+        tab("Cuentas")
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Plin"))
+        waitText("Plin")
+        compose.onNodeWithText("Plin").assertIsDisplayed()
+    }
+
+    @Test fun ui20UndoPaymentFromPlanAndRemoveExpense() {
+        val expense = runBlocking {
+            app.accountsRepository.setBalance("yape", 10000, 0)
+            app.monthlyPlanRepository.addExpense(YearMonth.now(), "Deuda prueba", 4000).also {
+                app.accountsRepository.payExpense(it, YearMonth.now(), "yape", 4000)
+            }
+        }
+        click("Ver plan")
+        click("Ver pagos")
+        waitText("Pagos de Deuda prueba")
+        click("Anular pago")
+        waitText("¿Anular pago de S/ 40.00?")
+        compose.onAllNodes(hasText("Anular pago") and hasClickAction()).onLast().performClick()
+        awaitData { runBlocking { app.accountsRepository.observeExpensePayments(YearMonth.now()).first().single().remainingCents == 4000L } }
+        waitText("Pago anulado")
+        click("Listo")
+        click("Quitar")
+        waitText("Quitar gasto")
+        compose.onAllNodes(hasText("Quitar") and hasClickAction()).onLast().performClick()
+        awaitData { currentPlan().expenses.none { it.id == expense } }
+        assertEquals(10000L, runBlocking { app.accountsRepository.observeAccount("yape").first() }!!.businessCents)
+    }
+
+    @Test fun ui21ReportsOpenAtTopAfterScrollingHome() {
+        click("Ver reportes")
+        compose.onNodeWithText("Día").assertIsDisplayed()
+        compose.onNodeWithText("Semana").assertIsDisplayed()
+        compose.onNodeWithText("Mes").assertIsDisplayed()
+        systemBack()
+        compose.onNode(tabMatcher("Inicio")).assertIsSelected()
+    }
+
+    @Test fun ui23PrivacyAvailableOfflineAndBackReturnsToSettings() {
+        tab("Ajustes")
+        click("Leer política de privacidad")
+        waitText("Política de privacidad")
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("soporte@yerry.me", substring = true))
+        compose.onNodeWithText("soporte@yerry.me", substring = true).assertIsDisplayed()
+        compose.activityRule.scenario.recreate()
+        waitText("Política de privacidad")
+        systemBack()
+        compose.onNode(tabMatcher("Ajustes")).assertIsSelected()
+    }
+
+    @Test fun ui24CaptureDisclosureCanBeDeclinedWithoutLeavingApp() {
+        tab("Ajustes")
+        click("Dar acceso a notificaciones")
+        waitText("Acceso a tus notificaciones")
+        compose.onNodeWithText("incluso cuando no estés viendo la app", substring = true).assertIsDisplayed()
+        click("Ahora no")
+        compose.onNodeWithText("Acceso a tus notificaciones").assertDoesNotExist()
+        compose.onNode(tabMatcher("Ajustes")).assertIsSelected()
+    }
+
+    /** Solo datos ficticios de la aplicación aislada de pruebas, nunca datos del teléfono. */
+    @Test fun ui25PlayScreenshotsWithFictionalData() {
+        runBlocking {
+            app.accountsRepository.setBalance("yape", 78_000, 5_000)
+            app.accountsRepository.setBalance("cash", 24_000, 0)
+            app.monthlyPlanRepository.addExpense(YearMonth.now(), "Alquiler", 30_000)
+            app.monthlyPlanRepository.setMonthlyGoal(YearMonth.now(), 90_000)
+        }
+        seed("Venta mostrador", 12_000)
+        seed("Pedido de ejemplo", 8_500)
+        seed("Venta de la tarde", 16_000)
+        seed("Cobro personal", 5_000, MovementClassification.PERSONAL)
+        awaitData { records().size == 4 }
+        // Espera a una cifra real del resumen antes de capturar, sin sleeps arbitrarios.
+        waitText("S/ 365.00", substring = true)
+        playScreenshot("01-inicio")
+        tab("Movimientos")
+        waitText("Venta mostrador")
+        playScreenshot("02-movimientos")
+        tab("Cuentas")
+        waitText("Yape")
+        playScreenshot("03-cuentas")
+        tab("Inicio")
+        click("Ver reportes")
+        waitText("Mes")
+        playScreenshot("04-reportes")
+    }
+
+    private fun playScreenshot(name: String) {
+        compose.waitForIdle()
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val directory = File(instrumentation.targetContext.getExternalFilesDir(null), "play-screenshots")
+        check(directory.mkdirs() || directory.isDirectory)
+        val bitmap = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+        try {
+            File(directory, "$name.png").outputStream().use {
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
+            }
+        } finally {
+            bitmap.recycle()
+        }
     }
 
     private fun resetData() = runBlocking(Dispatchers.IO) {
@@ -313,7 +559,7 @@ class LyapeUserJourneysTest {
         waitAddAction()
         compose.onNodeWithContentDescription("Agregar").performClick()
         waitText("Nuevo movimiento")
-        compose.onNode(tabMatcher("Resumen")).assertDoesNotExist()
+        compose.onNode(tabMatcher("Inicio")).assertDoesNotExist()
     }
 
     private fun openMovement(label: String) {

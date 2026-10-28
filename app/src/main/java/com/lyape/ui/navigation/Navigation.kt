@@ -16,13 +16,19 @@ sealed interface Destination {
     data class MonthlyPlan(val month: String) : Destination
     data object DailyClose : Destination
     data object Settings : Destination
+    data object Privacy : Destination
+    data object Accounts : Destination
+    data object Reports : Destination
+    data class AccountDetail(val accountId: String) : Destination
+    data class AccountForm(val mode: String, val accountId: String? = null) : Destination
+    data class ExpensePayment(val expenseId: String, val month: String) : Destination
 }
 
 /** Pestañas de la barra inferior. */
 enum class BottomTab(val label: String, val destination: Destination) {
-    SUMMARY("Resumen", Destination.Summary),
+    SUMMARY("Inicio", Destination.Summary),
+    ACCOUNTS("Cuentas", Destination.Accounts),
     MOVEMENTS("Movimientos", Destination.Movements),
-    CLOSE("Cierre", Destination.DailyClose),
     SETTINGS("Ajustes", Destination.Settings),
 }
 
@@ -32,7 +38,8 @@ val Destination.isRootDestination: Boolean
 
 /** Formularios que pueden tener cambios sin guardar y descartarse. */
 val Destination.isMovementForm: Boolean
-    get() = this == Destination.AddMovement || this is Destination.MovementEdit
+    get() = this == Destination.AddMovement || this is Destination.MovementEdit ||
+        this is Destination.AccountForm || this is Destination.ExpensePayment
 
 /** Qué hacer al retroceder desde una pantalla. */
 enum class ExitDecision { LEAVE, CONFIRM, STAY }
@@ -76,19 +83,36 @@ data class NavState(val backStack: List<Destination> = listOf(Destination.Summar
 
     fun open(destination: Destination): NavState = NavState(backStack + destination)
 
+    /** Conserva el mes realmente consultado al volver del pago, no solo el mes de entrada. */
+    fun openExpensePayment(expenseId: String, month: String): NavState {
+        val base = if (current is Destination.MonthlyPlan) {
+            copy(backStack = backStack.dropLast(1) + Destination.MonthlyPlan(month))
+        } else this
+        return base.open(Destination.ExpensePayment(expenseId, month))
+    }
+
     fun back(): NavState = if (canGoBack) NavState(backStack.dropLast(1)) else this
 }
 
 private const val DETAIL_PREFIX = "detail:"
 private const val EDIT_PREFIX = "edit:"
 private const val PLAN_PREFIX = "plan:"
+private const val ACCOUNT_PREFIX = "account:"
+private const val ACCOUNT_FORM_PREFIX = "account-form:"
+private const val EXPENSE_PAYMENT_PREFIX = "expense-payment:"
 
 internal fun Destination.encode(): String = when (this) {
     Destination.Summary -> "summary"
     Destination.Movements -> "movements"
     Destination.DailyClose -> "close"
     Destination.Settings -> "settings"
+    Destination.Privacy -> "privacy"
     Destination.AddMovement -> "add"
+    Destination.Accounts -> "accounts"
+    Destination.Reports -> "reports"
+    is Destination.AccountDetail -> "$ACCOUNT_PREFIX$accountId"
+    is Destination.AccountForm -> "$ACCOUNT_FORM_PREFIX$mode:${accountId.orEmpty()}"
+    is Destination.ExpensePayment -> "$EXPENSE_PAYMENT_PREFIX$month:$expenseId"
     is Destination.MovementDetail -> "$DETAIL_PREFIX$movementId"
     is Destination.MovementEdit -> "$EDIT_PREFIX$movementId"
     is Destination.MonthlyPlan -> "$PLAN_PREFIX$month"
@@ -97,9 +121,23 @@ internal fun Destination.encode(): String = when (this) {
 internal fun decodeDestination(value: String): Destination = when {
     value == "summary" -> Destination.Summary
     value == "movements" -> Destination.Movements
-    value == "close" -> Destination.DailyClose
+    value == "close" -> Destination.Movements
     value == "settings" -> Destination.Settings
+    value == "privacy" -> Destination.Privacy
     value == "add" -> Destination.AddMovement
+    value == "accounts" -> Destination.Accounts
+    value == "reports" -> Destination.Reports
+    value.startsWith(ACCOUNT_PREFIX) -> Destination.AccountDetail(value.removePrefix(ACCOUNT_PREFIX))
+    value.startsWith(ACCOUNT_FORM_PREFIX) -> {
+        val parts = value.removePrefix(ACCOUNT_FORM_PREFIX).split(':', limit = 2)
+        if (parts.size == 2 && parts[0] in setOf("add", "balance", "transfer", "withdraw")) {
+            Destination.AccountForm(parts[0], parts[1].takeIf { it.isNotBlank() })
+        } else Destination.Accounts
+    }
+    value.startsWith(EXPENSE_PAYMENT_PREFIX) -> {
+        val parts = value.removePrefix(EXPENSE_PAYMENT_PREFIX).split(':', limit = 2)
+        if (parts.size == 2) Destination.ExpensePayment(parts[1], parts[0]) else Destination.Summary
+    }
     value.startsWith(DETAIL_PREFIX) -> Destination.MovementDetail(value.removePrefix(DETAIL_PREFIX))
     value.startsWith(EDIT_PREFIX) -> Destination.MovementEdit(value.removePrefix(EDIT_PREFIX))
     value.startsWith(PLAN_PREFIX) -> Destination.MonthlyPlan(value.removePrefix(PLAN_PREFIX))
@@ -110,8 +148,11 @@ internal fun decodeDestination(value: String): Destination = when {
 fun NavState.toSavedList(): List<String> = backStack.map { it.encode() }
 
 /** Reconstruye el estado guardado. Si falta información, vuelve al resumen. */
-fun navStateFromSavedList(saved: List<String>): NavState =
-    if (saved.isEmpty()) NavState() else NavState(saved.map(::decodeDestination))
+fun navStateFromSavedList(saved: List<String>): NavState {
+    if (saved.isEmpty()) return NavState()
+    val destinations = saved.map(::decodeDestination)
+    return NavState(destinations)
+}
 
 val NavStateSaver: Saver<NavState, List<String>> = Saver(
     save = { it.toSavedList() },

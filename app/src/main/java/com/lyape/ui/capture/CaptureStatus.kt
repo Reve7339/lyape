@@ -13,14 +13,19 @@ import com.lyape.preferences.CapturePreferenceState
  * Ajustes lo deriva del acceso a notificaciones del sistema y la preferencia local de pausa.
  * Al volver de los ajustes del sistema se vuelve a leer el acceso.
  */
-enum class CaptureStatus { ACTIVE, PAUSED, NO_PERMISSION, LOADING, UNAVAILABLE }
+enum class CaptureStatus { ACTIVE, NOT_CONNECTED, PAUSED, NO_PERMISSION, LOADING, UNAVAILABLE }
 
 /** Sin acceso, la captura no puede funcionar aunque la preferencia no esté pausada. */
-internal fun captureStatus(hasAccess: Boolean, preference: CapturePreferenceState?): CaptureStatus = when {
+internal fun captureStatus(
+    hasAccess: Boolean,
+    preference: CapturePreferenceState?,
+    connected: Boolean = true,
+): CaptureStatus = when {
     !hasAccess -> CaptureStatus.NO_PERMISSION
     preference == null -> CaptureStatus.LOADING
     preference == CapturePreferenceState.UNAVAILABLE -> CaptureStatus.UNAVAILABLE
     preference == CapturePreferenceState.PAUSED -> CaptureStatus.PAUSED
+    !connected -> CaptureStatus.NOT_CONNECTED
     else -> CaptureStatus.ACTIVE
 }
 
@@ -28,6 +33,7 @@ internal fun captureStatus(hasAccess: Boolean, preference: CapturePreferenceStat
 internal val CaptureStatus.label: String
     get() = when (this) {
         CaptureStatus.ACTIVE -> "Activa"
+        CaptureStatus.NOT_CONNECTED -> "No conectada"
         CaptureStatus.PAUSED -> "Pausada"
         CaptureStatus.NO_PERMISSION -> "Sin permiso"
         CaptureStatus.LOADING -> "Comprobando"
@@ -37,6 +43,7 @@ internal val CaptureStatus.label: String
 @Composable
 internal fun CaptureStatus.color(): Color = when (this) {
     CaptureStatus.ACTIVE -> MaterialTheme.colorScheme.primary
+    CaptureStatus.NOT_CONNECTED -> MaterialTheme.colorScheme.onSurfaceVariant
     CaptureStatus.PAUSED -> MaterialTheme.colorScheme.onSurfaceVariant
     CaptureStatus.NO_PERMISSION -> MaterialTheme.colorScheme.error
     CaptureStatus.LOADING -> MaterialTheme.colorScheme.onSurfaceVariant

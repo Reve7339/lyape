@@ -2,6 +2,8 @@ package com.lyape.ui.monthlyplan
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,6 +27,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -44,9 +47,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lyape.domain.MonthlyExpense
 import com.lyape.domain.MonthlyPlan
+import com.lyape.domain.ExpensePaymentProgress
 import com.lyape.domain.MonthlyProgressCalculator
 import com.lyape.domain.ExpenseSchedule
 import com.lyape.domain.GoalMode
+import com.lyape.domain.GoalType
 import com.lyape.ui.components.LyapeCard
 import com.lyape.ui.components.SectionLabel
 import com.lyape.ui.format.AmountParse
@@ -56,6 +61,11 @@ import com.lyape.ui.format.formatMonthLabel
 import com.lyape.ui.format.parseAmountCents
 import com.lyape.ui.rememberMonthlyPlanRepository
 import com.lyape.ui.theme.PillShape
+import com.lyape.ui.rememberAccountsRepository
+import com.lyape.ui.dashboard.ReadFeedback
+import com.lyape.ui.dashboard.ScreenRead
+import com.lyape.ui.dashboard.asScreenRead
+import com.lyape.ui.dashboard.monthlyUnpaidTotal
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.time.YearMonth
@@ -64,23 +74,36 @@ import java.time.YearMonth
 fun MonthlyPlanScreen(
     initialMonth: String,
     modifier: Modifier = Modifier,
+    onPayExpense: (String, String) -> Unit = { _, _ -> },
 ) {
     val repository = rememberMonthlyPlanRepository()
+    val accountsRepository = rememberAccountsRepository()
     val scope = rememberCoroutineScope()
     val parsedInitial = remember(initialMonth) {
         runCatching { YearMonth.parse(initialMonth) }.getOrElse { YearMonth.now() }
     }
     var monthValue by rememberSaveable(initialMonth) { mutableStateOf(parsedInitial.toString()) }
     val month = remember(monthValue) { YearMonth.parse(monthValue) }
-    val plan by remember(repository, month) { repository.observePlan(month) }
-        .collectAsStateWithLifecycle(initialValue = MonthlyPlan.empty(month))
-    val totalExpenses = remember(plan) {
-        MonthlyProgressCalculator.calculate(0L, plan).totalExpensesCents
-    }
+    var retry by remember { mutableStateOf(0) }
+    val planReading by remember(repository, month, retry) {
+        repository.observePlan(month).asScreenRead()
+    }.collectAsStateWithLifecycle(initialValue = ScreenRead.Loading)
+    val paymentsReading by remember(accountsRepository, month, retry) {
+        accountsRepository.observeExpensePayments(month).asScreenRead()
+    }.collectAsStateWithLifecycle(initialValue = ScreenRead.Loading)
+    val planReady = planReading is ScreenRead.Ready
+    val plan = (planReading as? ScreenRead.Ready)?.value ?: MonthlyPlan.empty(month)
+    val paymentsAvailable = paymentsReading is ScreenRead.Ready
+    val payments = (paymentsReading as? ScreenRead.Ready)?.value.orEmpty()
+    val paymentsByExpense = payments.associateBy { it.expenseId }
+    val progress = remember(plan) { MonthlyProgressCalculator.calculate(0L, plan) }
+    val budget = remember(plan) { MonthlyProgressCalculator.calculate(0L, plan.copy(goal = null)) }
+    val totalExpenses = budget.totalExpensesCents
 
     var addingExpense by remember { mutableStateOf(false) }
     var editingExpense by remember { mutableStateOf<MonthlyExpense?>(null) }
     var deletingExpense by remember { mutableStateOf<MonthlyExpense?>(null) }
+    var viewingPayments by remember { mutableStateOf<MonthlyExpense?>(null) }
     var goalDialogMode by remember { mutableStateOf<GoalMode?>(null) }
     var removingGoal by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -96,11 +119,18 @@ fun MonthlyPlanScreen(
                 true
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (error: IllegalArgumentException) {
+                actionError = error.message ?: "Revisa los datos del plan."
+                false
+            } catch (error: IllegalStateException) {
+                actionError = error.message ?: "No se puede cambiar este gasto."
+                false
             } catch (_: Exception) {
                 actionError = "No pudimos guardar el plan. Vuelve a intentarlo."
                 false
+            } finally {
+                busy = false
             }
-            busy = false
             if (succeeded) onSuccess()
         }
     }
@@ -112,13 +142,6 @@ fun MonthlyPlanScreen(
             .padding(horizontal = 17.dp),
     ) {
         Spacer(Modifier.height(8.dp))
-        Text(
-            text = "Los gastos no aparecen como movimientos.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Spacer(Modifier.height(12.dp))
         MonthSelector(
             month = month,
             showThisMonth = month != YearMonth.now(),
@@ -126,6 +149,50 @@ fun MonthlyPlanScreen(
             onPrevious = { monthValue = month.minusMonths(1).toString() },
             onNext = { monthValue = month.plusMonths(1).toString() },
         )
+
+        if (!planReady) {
+            ReadFeedback(
+                failed = planReading is ScreenRead.Failed,
+                message = "No se pudo leer el plan de este mes.",
+                onRetry = { retry++ },
+            )
+            return@Column
+        }
+        if (!paymentsAvailable) {
+            ReadFeedback(
+                failed = paymentsReading is ScreenRead.Failed,
+                message = "No se pudieron leer los pagos. Puedes ver el plan, pero no editar ni quitar gastos hasta reintentar.",
+                onRetry = { retry++ },
+            )
+        }
+        val unpaid = if (paymentsAvailable) monthlyUnpaidTotal(payments) else null
+        Spacer(Modifier.height(12.dp))
+        Text("Por pagar del mes", style = MaterialTheme.typography.bodyMedium)
+        Text(
+            text = unpaid?.let(::formatCents) ?: "No disponible",
+            style = MaterialTheme.typography.headlineMedium,
+        )
+        Text(
+            if (budget.calculationError) "Los gastos superan el límite de cálculo. Revisa los importes." else "Gastos previstos ${formatCents(totalExpenses)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (unpaid != null && totalExpenses > 0L) {
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = { ((totalExpenses - unpaid).toDouble() / totalExpenses.toDouble()).toFloat().coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth(),
+                drawStopIndicator = {},
+            )
+        }
+        if (paymentsAvailable && payments.any { it.annual }) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Los anuales muestran aquí su parte mensual. El pago se registra por el año completo o en abonos.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         Spacer(Modifier.height(16.dp))
         Row(
@@ -135,7 +202,7 @@ fun MonthlyPlanScreen(
         ) {
             SectionLabel(text = "Gastos previstos")
             Text(
-                text = formatCents(totalExpenses),
+                text = if (budget.calculationError) "No disponible" else formatCents(totalExpenses),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -156,9 +223,14 @@ fun MonthlyPlanScreen(
                     ExpenseRow(
                         expense = expense,
                         selectedMonth = month,
-                        enabled = !busy,
-                        onEdit = { editingExpense = expense },
-                        onDelete = { deletingExpense = expense },
+                        enabled = !busy && paymentsAvailable,
+                        paymentsAvailable = paymentsAvailable,
+                        paymentsFailed = paymentsReading is ScreenRead.Failed,
+                        payment = if (paymentsAvailable) paymentsByExpense[expense.id] else null,
+                        onPay = { onPayExpense(expense.id.toString(), month.toString()) },
+                        onPayments = { viewingPayments = expense },
+                        onEdit = { actionError = null; editingExpense = expense },
+                        onDelete = { actionError = null; deletingExpense = expense },
                     )
                     if (index != plan.expenses.lastIndex) {
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -169,7 +241,7 @@ fun MonthlyPlanScreen(
 
         Spacer(Modifier.height(12.dp))
         OutlinedButton(
-            onClick = { addingExpense = true },
+            onClick = { actionError = null; addingExpense = true },
             enabled = !busy,
             modifier = Modifier
                 .fillMaxWidth()
@@ -180,47 +252,20 @@ fun MonthlyPlanScreen(
         }
 
         Spacer(Modifier.height(20.dp))
-        SectionLabel(text = "Meta de ingresos")
+        SectionLabel(text = "Meta")
         Spacer(Modifier.height(8.dp))
         LyapeCard {
             val goal = plan.goal
             Text(
-                text = "Tipo de meta",
+                text = if (goal?.type == GoalType.PROFIT) "Meta de ganancia" else if (goal != null) "Meta de ingresos" else "Sin meta",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GoalModeChip(
-                    label = "Fija mensual",
-                    selected = plan.goalMode == GoalMode.FIXED_MONTHLY,
-                    enabled = !busy,
-                    modifier = Modifier.weight(1f),
-                    onClick = {
-                        save(
-                            action = { repository.setGoalMode(GoalMode.FIXED_MONTHLY) },
-                            onSuccess = {},
-                        )
-                    },
-                )
-                GoalModeChip(
-                    label = "Por mes",
-                    selected = plan.goalMode == GoalMode.BY_MONTH,
-                    enabled = !busy,
-                    modifier = Modifier.weight(1f),
-                    onClick = {
-                        save(
-                            action = { repository.setGoalMode(GoalMode.BY_MONTH) },
-                            onSuccess = {},
-                        )
-                    },
-                )
-            }
             Spacer(Modifier.height(12.dp))
             if (goal == null) {
                 Text(
                     text = if (plan.goalMode == GoalMode.FIXED_MONTHLY) {
-                        "Todavía no definiste la meta fija que se usará todos los meses."
+                        "Define cuánto quieres ganar cada mes."
                     } else {
                         "Sin meta para ${formatMonthLabel(month)}."
                     },
@@ -233,17 +278,19 @@ fun MonthlyPlanScreen(
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                if (plan.goalMode == GoalMode.BY_MONTH) {
-                    Text(
-                        text = "Solo se aplica a ${formatMonthLabel(month)}.",
+                Text(
+                        text = if (plan.goalMode == GoalMode.BY_MONTH) formatMonthLabel(month) else "Todos los meses",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                }
-                if (plan.expenses.isNotEmpty() && goal.amountCents < totalExpenses) {
+                if (progress.calculationError) {
+                    Text("Los importes superan el límite de cálculo. Revisa gastos y meta.", color = MaterialTheme.colorScheme.error)
+                } else if (goal.type == GoalType.PROFIT) {
+                    Text("Ingresos necesarios: ${formatCents(requireNotNull(progress.requiredIncomeCents))}", style = MaterialTheme.typography.bodySmall)
+                } else if (plan.expenses.isNotEmpty() && goal.amountCents < totalExpenses) {
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = "Esta meta es menor que tus gastos previstos y no alcanza a cubrirlos.",
+                        text = "La meta no cubre los gastos del mes.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -287,9 +334,11 @@ fun MonthlyPlanScreen(
         ExpenseDialog(
             expense = current,
             busy = busy,
+            error = actionError,
             onDismiss = {
                 addingExpense = false
                 editingExpense = null
+                actionError = null
             },
             onSave = { schedule, name, amount ->
                 save(
@@ -316,13 +365,21 @@ fun MonthlyPlanScreen(
             onDismissRequest = { if (!busy) deletingExpense = null },
             title = { Text("Quitar gasto") },
             text = {
-                Text(
-                    if (expense.schedule == ExpenseSchedule.MONTHLY_EXTRA) {
-                        "¿Quitar “${expense.name}” del plan de ${formatMonthLabel(month)}?"
-                    } else {
-                        "¿Quitar “${expense.name}” de todos los meses?"
-                    },
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        if (expense.schedule == ExpenseSchedule.MONTHLY_EXTRA) {
+                            "¿Quitar “${expense.name}” del plan de ${formatMonthLabel(month)}?"
+                        } else {
+                            "¿Quitar “${expense.name}” de todos los meses?"
+                        },
+                    )
+                    actionError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = { deletingExpense = null; viewingPayments = expense; actionError = null }, enabled = !busy) {
+                            Text("Ver pagos")
+                        }
+                    }
+                }
             },
             confirmButton = {
                 TextButton(
@@ -379,19 +436,24 @@ fun MonthlyPlanScreen(
         )
     }
 
+    viewingPayments?.let { expense ->
+        ExpensePaymentsDialog(expense, onDismiss = { viewingPayments = null })
+    }
+
     goalDialogMode?.let { mode ->
         GoalDialog(
-            mode = mode,
-            currentAmount = plan.goal?.amountCents,
+            initialMode = mode,
+            plan = plan,
             busy = busy,
+            saveError = actionError,
             onDismiss = { goalDialogMode = null },
-            onSave = { amount ->
+            onSave = { amount, type, selectedMode ->
                 save(
                     action = {
-                        if (mode == GoalMode.FIXED_MONTHLY) {
-                            repository.setFixedGoal(amount)
+                        if (selectedMode == GoalMode.FIXED_MONTHLY) {
+                            repository.setFixedGoal(amount, type)
                         } else {
-                            repository.setMonthlyGoal(month, amount)
+                            repository.setMonthlyGoal(month, amount, type)
                         }
                     },
                     onSuccess = { goalDialogMode = null },
@@ -439,10 +501,16 @@ private fun MonthSelector(
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun ExpenseRow(
     expense: MonthlyExpense,
     selectedMonth: YearMonth,
     enabled: Boolean,
+    paymentsAvailable: Boolean,
+    paymentsFailed: Boolean,
+    payment: ExpensePaymentProgress?,
+    onPay: () -> Unit,
+    onPayments: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -470,7 +538,39 @@ private fun ExpenseRow(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (!paymentsAvailable) {
+            if (paymentsFailed) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "No se pudieron comprobar los pagos de este gasto.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        } else if (payment != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = expenseRemainingLabel(payment),
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (payment.remainingCents == 0L) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+            )
+            if (payment.paidCents > 0L && payment.remainingCents > 0L) {
+                Text(
+                    "Abonado ${formatCents(payment.paidCents)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (payment != null && payment.remainingCents > 0L) {
+                TextButton(onClick = onPay, enabled = enabled) { Text("Pagar") }
+            }
+            TextButton(onClick = onPayments, enabled = enabled) { Text("Ver pagos") }
             TextButton(onClick = onEdit, enabled = enabled) { Text("Editar") }
             TextButton(onClick = onDelete, enabled = enabled) {
                 Text("Quitar", color = MaterialTheme.colorScheme.error)
@@ -483,6 +583,7 @@ private fun ExpenseRow(
 private fun ExpenseDialog(
     expense: MonthlyExpense?,
     busy: Boolean,
+    error: String?,
     onDismiss: () -> Unit,
     onSave: (ExpenseSchedule, String, Long) -> Unit,
 ) {
@@ -561,6 +662,10 @@ private fun ExpenseDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                error?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
             }
         },
         confirmButton = {
@@ -584,49 +689,39 @@ private fun ExpenseDialog(
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun GoalDialog(
-    mode: GoalMode,
-    currentAmount: Long?,
+    initialMode: GoalMode,
+    plan: MonthlyPlan,
     busy: Boolean,
+    saveError: String?,
     onDismiss: () -> Unit,
-    onSave: (Long) -> Unit,
+    onSave: (Long, GoalType, GoalMode) -> Unit,
 ) {
-    var amountText by remember(currentAmount) {
-        mutableStateOf(currentAmount?.let(::formatAmountInput).orEmpty())
+    var mode by rememberSaveable { mutableStateOf(initialMode) }
+    val savedGoal = if (mode == GoalMode.FIXED_MONTHLY) plan.fixedGoal else plan.monthlyGoal
+    var type by rememberSaveable(mode) { mutableStateOf(savedGoal?.type ?: GoalType.PROFIT) }
+    var amountText by rememberSaveable(mode) {
+        mutableStateOf(savedGoal?.amountCents?.let(::formatAmountInput).orEmpty())
     }
     var amountError by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = {
-            Text(
-                if (mode == GoalMode.FIXED_MONTHLY) {
-                    "Meta fija mensual"
-                } else {
-                    "Meta de este mes"
-                },
-            )
+            Text("Definir meta")
         },
         text = {
-            Column {
-                Text(
-                    text = "Es una meta de ingresos registrados, no de ganancia neta.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (mode == GoalMode.FIXED_MONTHLY) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "Se aplica automáticamente a todos los meses.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Tipo", style = MaterialTheme.typography.labelLarge)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GoalModeChip("Ganancia", type == GoalType.PROFIT, !busy, { type = GoalType.PROFIT; amountError = null })
+                    GoalModeChip("Ingresos", type == GoalType.INCOME, !busy, { type = GoalType.INCOME; amountError = null })
                 }
-                Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = amountText,
                     onValueChange = { amountText = it; amountError = null },
-                    label = { Text("Meta (S/)") },
+                    label = { Text(if (type == GoalType.PROFIT) "Ganancia deseada (S/)" else "Ingresos deseados (S/)") },
                     singleLine = true,
                     enabled = !busy,
                     isError = amountError != null,
@@ -634,6 +729,23 @@ private fun GoalDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Text("Aplicar", style = MaterialTheme.typography.labelLarge)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GoalModeChip("Todos los meses", mode == GoalMode.FIXED_MONTHLY, !busy, { mode = GoalMode.FIXED_MONTHLY; amountError = null })
+                    GoalModeChip("Por mes", mode == GoalMode.BY_MONTH, !busy, { mode = GoalMode.BY_MONTH; amountError = null })
+                }
+                Text(
+                    if (type == GoalType.PROFIT) "La ganancia estimada descuenta los gastos del plan." else "Ingresos del negocio antes de descontar gastos.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                val amount = (parseAmountCents(amountText) as? AmountParse.Valid)?.cents
+                if (type == GoalType.PROFIT && amount != null && amount > 0L) {
+                    val preview = MonthlyProgressCalculator.calculate(0L, plan.copy(goal = com.lyape.domain.MonthlyGoal(plan.month, amount, type)))
+                    if (!preview.calculationError) Text("Ingresos necesarios: ${formatCents(requireNotNull(preview.requiredIncomeCents))}", style = MaterialTheme.typography.bodySmall)
+                }
+                if (type == GoalType.PROFIT && plan.expenses.isEmpty()) Text("Sin gastos en el plan", style = MaterialTheme.typography.bodySmall)
+                if (mode == GoalMode.FIXED_MONTHLY) Text("También cambia los meses anteriores donde se aplica.", style = MaterialTheme.typography.bodySmall)
+                saveError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = {
@@ -641,7 +753,11 @@ private fun GoalDialog(
                 enabled = !busy,
                 onClick = {
                     val amount = positiveAmountOrNull(amountText) { amountError = it }
-                    if (amount != null) onSave(amount)
+                    if (amount != null) {
+                        val preview = MonthlyProgressCalculator.calculate(0L, plan.copy(goal = com.lyape.domain.MonthlyGoal(plan.month, amount, type)))
+                        if (preview.calculationError) amountError = "La meta y los gastos superan el límite de cálculo."
+                        else onSave(amount, type, mode)
+                    }
                 },
                 shape = PillShape,
             ) {
@@ -667,7 +783,7 @@ private fun GoalModeChip(
         onClick = onClick,
         enabled = enabled,
         label = { Text(label) },
-        modifier = modifier,
+        modifier = modifier.heightIn(min = 48.dp),
         colors = lyapeChipColors(),
     )
 }

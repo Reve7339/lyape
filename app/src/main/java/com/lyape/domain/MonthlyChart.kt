@@ -1,5 +1,7 @@
 package com.lyape.domain
 
+import java.math.BigInteger
+
 /** Punto del acumulado mensual: etiqueta del día y suma acumulada con signo. */
 data class MonthlyChartPoint(
     val label: String,
@@ -23,8 +25,9 @@ data class MonthlyChartThreshold(
 /**
  * Serie acumulada del mes lista para dibujar.
  *
- * [minCents] y [maxCents] siempre incluyen cero, todos los acumulados y los umbrales visibles, de
- * modo que la escala nunca recorta un valor. Los importes siguen en céntimos (`Long`): la
+ * [minCents] y [maxCents] incluyen cero, todos los acumulados representables y los umbrales
+ * visibles, de modo que la escala no recorta un valor. Si un dato no cabe en `Long`, la serie se
+ * devuelve vacía con [MonthlyChartSeries.calculationError]. Los importes siguen en céntimos: la
  * conversión a `Double` ocurre solo al calcular fracciones de dibujo.
  */
 data class MonthlyChartSeries(
@@ -32,6 +35,8 @@ data class MonthlyChartSeries(
     val thresholds: List<MonthlyChartThreshold>,
     val minCents: Long,
     val maxCents: Long,
+    /** Algún acumulado exacto no cabe en `Long`; no se dibuja una serie saturada. */
+    val calculationError: Boolean = false,
 ) {
     /** Posición vertical de [valueCents] en `[0,1]`: 0 abajo (mínimo) y 1 arriba (máximo). */
     fun fractionOf(valueCents: Long): Float {
@@ -47,8 +52,9 @@ data class MonthlyChartSeries(
 /**
  * Cálculo puro del acumulado mensual para el gráfico del resumen.
  *
- * La suma es saturada para no desbordar con valores extremos de `Long`; el resultado sigue siendo
- * exacto para cualquier monto real.
+ * La suma se hace con precisión arbitraria. Si un punto que realmente se mostrará no cabe en
+ * `Long`, se devuelve una serie marcada como error en vez de saturarla. Esto distingue un
+ * resultado final representable de un acumulado intermedio fuera de rango.
  */
 object MonthlyChartCalculator {
 
@@ -57,10 +63,28 @@ object MonthlyChartCalculator {
         expensesCents: Long?,
         goalCents: Long?,
     ): MonthlyChartSeries {
-        var running = 0L
-        val points = bars.map { bar ->
-            running = saturatedAdd(running, bar.amountCents)
-            MonthlyChartPoint(label = bar.label, cumulativeCents = running)
+        if (bars.any { it.calculationError }) {
+            return MonthlyChartSeries(
+                points = emptyList(),
+                thresholds = emptyList(),
+                minCents = 0L,
+                maxCents = 0L,
+                calculationError = true,
+            )
+        }
+        var running = BigInteger.ZERO
+        val points = mutableListOf<MonthlyChartPoint>()
+        for (bar in bars) {
+            running += BigInteger.valueOf(bar.amountCents)
+            val cumulative = running.toLongExactOrNull()
+                ?: return MonthlyChartSeries(
+                    points = emptyList(),
+                    thresholds = emptyList(),
+                    minCents = 0L,
+                    maxCents = 0L,
+                    calculationError = true,
+                )
+            points += MonthlyChartPoint(label = bar.label, cumulativeCents = cumulative)
         }
 
         val thresholds = buildList {
@@ -117,11 +141,5 @@ object MonthlyChartCalculator {
             for (index in fractions.indices) fractions[index] -= lowest
         }
         return fractions
-    }
-
-    private fun saturatedAdd(left: Long, right: Long): Long = try {
-        Math.addExact(left, right)
-    } catch (_: ArithmeticException) {
-        if (left >= 0L && right >= 0L) Long.MAX_VALUE else Long.MIN_VALUE
     }
 }

@@ -1,32 +1,30 @@
 package com.lyape.notification
 
 import android.app.Notification
+import android.os.Process
 import android.service.notification.StatusBarNotification
 import java.time.Instant
 
 /**
  * Adaptador entre Android y el parser.
  *
- * Es el único punto que lee `Notification.extras`. Comprueba primero el paquete contra la única
- * constante de [YapePackage] y retorna antes de tocar el contenido de cualquier otra aplicación.
+ * Es el único punto que lee `Notification.extras`. Recibe el proveedor ya resuelto por el
+ * registro cerrado y comprueba otra vez su paquete antes de tocar cualquier contenido.
  * Los campos ausentes se devuelven vacíos o nulos sin lanzar excepciones.
  */
 object NotificationAdapter {
 
-    /** `true` solo si la notificación proviene del paquete configurado para Yape. */
-    fun isFromYape(packageName: String): Boolean =
-        packageName == YapePackage.PROVISIONAL_PACKAGE_ID
-
     /**
      * Construye la entrada del parser.
      *
-     * Devuelve `null` si el paquete no corresponde a Yape o si la notificación no tiene contenido
-     * legible. No copia el texto a ninguna parte: solo se queda en memoria mientras se analiza.
+     * Devuelve `null` si el paquete no corresponde al proveedor habilitado o si la notificación
+     * no tiene contenido legible. El texto se queda en memoria mientras se analiza.
      */
-    fun toInput(sbn: StatusBarNotification): NotificationInput? {
-        if (!isFromYape(sbn.packageName)) return null
-
+    fun toInput(sbn: StatusBarNotification, source: CaptureProviderSpec): NotificationInput? {
+        if (!source.acceptsPackage(sbn.packageName)) return null
         val notification = sbn.notification ?: return null
+        if (!acceptsCaptureEnvelope(source, sbn.packageName, sbn.userId,
+                sbn.user == Process.myUserHandle(), notification.flags and Notification.FLAG_GROUP_SUMMARY != 0)) return null
         val extras = notification.extras ?: return null
 
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()

@@ -30,6 +30,19 @@ class CaptureStatusTest {
     }
 
     @Test
+    fun `con acceso pero listener desconectado no se presenta como activa`() {
+        assertEquals(
+            CaptureStatus.NOT_CONNECTED,
+            captureStatus(
+                hasAccess = true,
+                preference = CapturePreferenceState.ACTIVE,
+                connected = false,
+            ),
+        )
+        assertEquals("No conectada", CaptureStatus.NOT_CONNECTED.label)
+    }
+
+    @Test
     fun `un fallo de lectura no se presenta como una pausa voluntaria`() {
         assertEquals(CaptureStatus.UNAVAILABLE, captureStatus(true, CapturePreferenceState.UNAVAILABLE))
     }

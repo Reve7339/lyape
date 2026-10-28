@@ -3,6 +3,7 @@ package com.lyape.data
 import com.lyape.domain.Movement
 import com.lyape.domain.MovementClassification
 import com.lyape.domain.MovementSource
+import com.lyape.domain.PaymentMedium
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.Instant
@@ -43,6 +44,14 @@ class MovementMapperTest {
     @Test
     fun `el viaje de ida y vuelta conserva el movimiento`() {
         assertEquals(movement, movement.toEntity().toDomain())
+    }
+
+    @Test
+    fun `el medio de pago se conserva en la entidad y en el dominio`() {
+        val plin = movement.copy(medium = PaymentMedium.PLIN)
+
+        assertEquals(PaymentMedium.PLIN, plin.toEntity().medium)
+        assertEquals(PaymentMedium.PLIN, plin.toEntity().toDomain().medium)
     }
 
     @Test

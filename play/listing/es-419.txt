@@ -1,0 +1,27 @@
+NOMBRE
+LYape
+
+DESCRIPCIÓN BREVE
+Registra cobros de Yape y Plin, organiza gastos y sigue las metas de tu negocio.
+
+DESCRIPCIÓN COMPLETA
+Lleva las cuentas de tu negocio desde tu teléfono.
+
+Con tu autorización, LYape registra cobros desde las notificaciones de Yape y de Plin en Interbank. También puedes añadir movimientos manuales, separar lo personal del negocio y corregir o anular registros.
+
+• Consulta ingresos por día, semana y mes.
+• Lleva saldos registrados de Yape, Plin, efectivo y otras cuentas.
+• Organiza gastos fijos mensuales, anuales y extras, y registra sus pagos.
+• Define una meta de ingresos o de ganancia.
+• Activa avisos de voz para escuchar el medio y el monto de nuevos cobros.
+
+Los registros permanecen en tu dispositivo. Sin cuenta de usuario, publicidad ni respaldo automático. Código abierto.
+
+Importante: LYape no mueve dinero, no consulta saldos bancarios ni confirma que un pago haya sido liquidado. Los saldos son estimaciones basadas en lo que registras y las notificaciones disponibles. Comprueba los pagos en tu aplicación bancaria. Plin está disponible mediante notificaciones de Interbank; otros bancos no están confirmados.
+
+La captura depende del permiso de notificaciones, del formato de los avisos y de las restricciones de Android. La voz requiere un motor compatible y una voz local instalada. Un teléfono apagado o una aplicación detenida forzosamente puede dejar de registrar o anunciar cobros.
+
+Proyecto independiente, no afiliado a Yape, Plin, Interbank ni al BCP.
+
+NOVEDADES 0.0.2
+Cuentas locales, gastos y metas de ganancia o ingresos. Captura de Plin en Interbank y avisos de voz opcionales. Mejoras en movimientos, privacidad y fiabilidad.

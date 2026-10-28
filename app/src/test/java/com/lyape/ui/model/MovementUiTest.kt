@@ -30,6 +30,14 @@ class MovementUiTest {
     }
 
     @Test
+    fun `respeta el formato de 24 horas del sistema`() {
+        val ui = movement().toUi(lima, use24Hour = true)
+
+        assertEquals("17:42", ui.timeLabel)
+        assertEquals("15 oct. 2026 · 17:42", ui.dateTimeLabel)
+    }
+
+    @Test
     fun `sin remitente usa un titulo de respaldo segun el origen`() {
         assertEquals(
             "Pago sin nombre",

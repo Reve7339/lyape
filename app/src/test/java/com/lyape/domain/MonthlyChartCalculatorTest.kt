@@ -104,20 +104,33 @@ class MonthlyChartCalculatorTest {
     }
 
     @Test
-    fun `la suma saturada evita desbordar con extremos de Long`() {
+    fun `un acumulado fuera de rango produce error local en vez de saturar`() {
         val positive = MonthlyChartCalculator.calculate(
             bars = bars(Long.MAX_VALUE, Long.MAX_VALUE),
             expensesCents = null,
             goalCents = null,
         )
-        assertEquals(Long.MAX_VALUE, positive.points.last().cumulativeCents)
+        assertTrue(positive.calculationError)
+        assertTrue(positive.points.isEmpty())
 
         val negative = MonthlyChartCalculator.calculate(
             bars = bars(Long.MIN_VALUE, Long.MIN_VALUE),
             expensesCents = null,
             goalCents = null,
         )
-        assertEquals(Long.MIN_VALUE, negative.points.last().cumulativeCents)
+        assertTrue(negative.calculationError)
+        assertTrue(negative.points.isEmpty())
+    }
+
+    @Test
+    fun `un punto intermedio fuera de rango no se oculta aunque luego vuelva`() {
+        val series = MonthlyChartCalculator.calculate(
+            bars = bars(Long.MAX_VALUE, 1L, -1L),
+            expensesCents = null,
+            goalCents = null,
+        )
+
+        assertTrue(series.calculationError)
     }
 
     @Test

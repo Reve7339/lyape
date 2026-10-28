@@ -43,17 +43,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.lyape.R
-import com.lyape.ui.dailyclose.DailyCloseScreen
+import com.lyape.ui.accounts.AccountsScreen
+import com.lyape.ui.accounts.AccountDetailScreen
+import com.lyape.ui.accounts.AccountFormScreen
+import com.lyape.ui.monthlyplan.ExpensePaymentScreen
 import com.lyape.ui.dashboard.DashboardScreen
 import com.lyape.ui.movementdetail.MovementDetailScreen
 import com.lyape.ui.movementform.AddMovementScreen
@@ -65,10 +70,12 @@ import com.lyape.ui.navigation.Destination
 import com.lyape.ui.navigation.ExitDecision
 import com.lyape.ui.navigation.NavState
 import com.lyape.ui.navigation.NavStateSaver
+import com.lyape.ui.navigation.NavigationRequests
 import com.lyape.ui.navigation.exitDecision
 import com.lyape.ui.navigation.isMovementForm
 import com.lyape.ui.navigation.isRootDestination
 import com.lyape.ui.settings.SettingsScreen
+import com.lyape.ui.settings.PrivacyScreen
 
 /**
  * Raíz de la interfaz: barra superior, contenido por destino y barra inferior de pestañas.
@@ -81,6 +88,7 @@ fun LyapeApp(modifier: Modifier = Modifier) {
     var formDirty by rememberSaveable { mutableStateOf(false) }
     var formSaving by rememberSaveable { mutableStateOf(false) }
     var confirmingDiscard by rememberSaveable { mutableStateOf(false) }
+    var pendingSettings by rememberSaveable { mutableStateOf(false) }
 
     val destination = navState.current
 
@@ -88,6 +96,52 @@ fun LyapeApp(modifier: Modifier = Modifier) {
         formDirty = false
         formSaving = false
         confirmingDiscard = false
+    }
+
+    val requestSettings: () -> Unit = {
+        when (exitDecision(destination, formDirty, formSaving)) {
+            ExitDecision.LEAVE -> {
+                pendingSettings = false
+                navState = navState.selectTab(BottomTab.SETTINGS)
+            }
+            ExitDecision.CONFIRM -> {
+                pendingSettings = true
+                confirmingDiscard = true
+            }
+            ExitDecision.STAY -> pendingSettings = true
+        }
+    }
+    val latestRequestSettings = rememberUpdatedState(requestSettings)
+    LaunchedEffect(Unit) {
+        NavigationRequests.openSettings.collect {
+            latestRequestSettings.value()
+        }
+    }
+
+    // Una solicitud recibida mientras se guardaba espera al resultado; si el formulario sigue
+    // sucio, se pide confirmación en vez de saltar a Ajustes y perder los cambios.
+    LaunchedEffect(pendingSettings, formSaving, formDirty, destination) {
+        if (!pendingSettings || formSaving) return@LaunchedEffect
+        when (exitDecision(destination, formDirty, formSaving)) {
+            ExitDecision.LEAVE -> {
+                pendingSettings = false
+                navState = navState.selectTab(BottomTab.SETTINGS)
+            }
+            ExitDecision.CONFIRM -> confirmingDiscard = true
+            ExitDecision.STAY -> Unit
+        }
+    }
+
+    fun finishForm() {
+        confirmingDiscard = false
+        formDirty = false
+        formSaving = false
+        if (pendingSettings) {
+            pendingSettings = false
+            navState = navState.selectTab(BottomTab.SETTINGS)
+        } else {
+            navState = navState.back()
+        }
     }
 
     val onBackRequested: () -> Unit = {
@@ -114,18 +168,35 @@ fun LyapeApp(modifier: Modifier = Modifier) {
         Destination.Summary,
         Destination.DailyClose,
         Destination.Settings,
+        Destination.Privacy,
         Destination.AddMovement,
         is Destination.MovementDetail,
         is Destination.MovementEdit,
         is Destination.MonthlyPlan,
+        Destination.Accounts,
+        Destination.Reports,
+        is Destination.AccountDetail,
+        is Destination.AccountForm,
+        is Destination.ExpensePayment,
         -> null
     }
 
     val secondaryTitle: String? = when (destination) {
+        Destination.Privacy -> androidx.compose.ui.res.stringResource(com.lyape.R.string.privacy_policy_title)
         is Destination.MovementDetail -> "Detalle del movimiento"
         Destination.AddMovement -> "Nuevo movimiento"
         is Destination.MovementEdit -> "Editar movimiento"
         is Destination.MonthlyPlan -> "Plan mensual"
+        Destination.DailyClose -> null // Compatibilidad con estados guardados antiguos.
+        Destination.Reports -> "Reportes"
+        is Destination.AccountDetail -> "Detalle de cuenta"
+        is Destination.AccountForm -> when (destination.mode) {
+            "add" -> "Nueva cuenta"
+            "balance" -> "Saldo actual"
+            "transfer" -> "Transferencia"
+            else -> "Registrar salida"
+        }
+        is Destination.ExpensePayment -> "Registrar pago"
         else -> null
     }
 
@@ -156,9 +227,14 @@ fun LyapeApp(modifier: Modifier = Modifier) {
             }
         },
     ) { innerPadding ->
-        // El IME solo se descuenta donde no hay barra inferior: en las raíces la barra ocupa el
-        // borde y ya aporta su propio inset de navegación.
-        val contentInsets = if (destination.isRootDestination) Modifier else Modifier.imePadding()
+        // Las raíces ya tienen el inset inferior en la barra. En secundarios, consumir primero
+        // navegación permite que imePadding añada solo el espacio restante del teclado.
+        val horizontalSafe = Modifier.windowInsetsPadding(
+            WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal),
+        )
+        val contentInsets = if (destination.isRootDestination) horizontalSafe else horizontalSafe
+            .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+            .imePadding()
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -166,18 +242,22 @@ fun LyapeApp(modifier: Modifier = Modifier) {
                 .then(contentInsets),
         ) {
             when (destination) {
-                Destination.Summary -> DashboardScreen(
-                    onReviewPending = { navState = navState.selectTab(BottomTab.CLOSE) },
+                Destination.Summary, Destination.Reports -> DashboardScreen(
+                    reportsOnly = destination == Destination.Reports,
                     onConfigurePlan = { month ->
                         navState = navState.open(Destination.MonthlyPlan(month.toString()))
                     },
+                    onOpenAccounts = { navState = navState.selectTab(BottomTab.ACCOUNTS) },
+                    onOpenAccount = { navState = navState.open(Destination.AccountDetail(it)) },
+                    onOpenReports = { navState = navState.open(Destination.Reports) },
                 )
-                Destination.Movements -> MovementsScreen(
+                Destination.Movements, Destination.DailyClose -> MovementsScreen(
                     onOpenMovement = { id -> navState = navState.open(Destination.MovementDetail(id)) },
                     onAddManual = { navState = navState.open(Destination.AddMovement) },
                     searchActive = movementsSearchActive,
                     searchQuery = movementsQuery,
                     onSearchQueryChange = { movementsQuery = it },
+                    onEditMovement = { navState = navState.open(Destination.MovementEdit(it)) },
                 )
                 is Destination.MovementDetail -> MovementDetailScreen(
                     movementId = destination.movementId,
@@ -186,39 +266,66 @@ fun LyapeApp(modifier: Modifier = Modifier) {
                     },
                 )
                 Destination.AddMovement -> AddMovementScreen(
-                    onSaved = {
-                        confirmingDiscard = false
-                        formDirty = false
-                        formSaving = false
-                        navState = navState.back()
-                    },
+                    onSaved = { finishForm() },
                     onDirtyChange = { formDirty = it },
                     onSavingChange = { formSaving = it },
                 )
                 is Destination.MovementEdit -> EditMovementScreen(
                     movementId = destination.movementId,
-                    onSaved = {
-                        confirmingDiscard = false
-                        formDirty = false
-                        formSaving = false
-                        navState = navState.back()
-                    },
+                    onSaved = { finishForm() },
                     onDirtyChange = { formDirty = it },
                     onSavingChange = { formSaving = it },
                 )
-                is Destination.MonthlyPlan -> MonthlyPlanScreen(initialMonth = destination.month)
-                Destination.DailyClose -> DailyCloseScreen(
-                    onAddMissing = { navState = navState.open(Destination.AddMovement) },
-                    onOpenMovement = { id -> navState = navState.open(Destination.MovementDetail(id)) },
+                is Destination.MonthlyPlan -> MonthlyPlanScreen(
+                    initialMonth = destination.month,
+                    onPayExpense = { expenseId, month ->
+                        navState = navState.openExpensePayment(expenseId, month)
+                    },
                 )
-                Destination.Settings -> SettingsScreen()
+                Destination.Accounts -> AccountsScreen(
+                    onOpenAccount = { navState = navState.open(Destination.AccountDetail(it)) },
+                    onAddAccount = { navState = navState.open(Destination.AccountForm("add")) },
+                    onTransfer = { navState = navState.open(Destination.AccountForm("transfer")) },
+                    onWithdraw = { navState = navState.open(Destination.AccountForm("withdraw")) },
+                )
+                is Destination.AccountDetail -> AccountDetailScreen(
+                    accountId = destination.accountId,
+                    onSetBalance = { navState = navState.open(Destination.AccountForm("balance", destination.accountId)) },
+                    onTransfer = { navState = navState.open(Destination.AccountForm("transfer", destination.accountId)) },
+                    onWithdraw = { navState = navState.open(Destination.AccountForm("withdraw", destination.accountId)) },
+                )
+                is Destination.AccountForm -> AccountFormScreen(
+                    mode = destination.mode,
+                    accountId = destination.accountId,
+                    onSaved = { finishForm() },
+                    onDirtyChange = { formDirty = it },
+                    onSavingChange = { formSaving = it },
+                )
+                is Destination.ExpensePayment -> ExpensePaymentScreen(
+                    expenseId = destination.expenseId,
+                    month = destination.month,
+                    onSaved = { finishForm() },
+                    onDirtyChange = { formDirty = it },
+                    onSavingChange = { formSaving = it },
+                )
+                Destination.Settings -> SettingsScreen(
+                    onOpenMovements = { navState = navState.selectTab(BottomTab.MOVEMENTS) },
+                    onOpenAccounts = { navState = navState.selectTab(BottomTab.ACCOUNTS) },
+                    onOpenPrivacy = { navState = navState.open(Destination.Privacy) },
+                )
+                Destination.Privacy -> PrivacyScreen()
             }
         }
     }
 
     if (confirmingDiscard) {
         AlertDialog(
-            onDismissRequest = { if (!formSaving) confirmingDiscard = false },
+            onDismissRequest = {
+                if (!formSaving) {
+                    confirmingDiscard = false
+                    pendingSettings = false
+                }
+            },
             title = { Text("¿Descartar cambios?") },
             text = { Text("Los cambios que hiciste no se guardarán.") },
             confirmButton = {
@@ -227,7 +334,12 @@ fun LyapeApp(modifier: Modifier = Modifier) {
                     onClick = {
                         confirmingDiscard = false
                         formDirty = false
-                        navState = navState.back()
+                        if (pendingSettings) {
+                            pendingSettings = false
+                            navState = navState.selectTab(BottomTab.SETTINGS)
+                        } else {
+                            navState = navState.back()
+                        }
                     },
                 ) {
                     Text("Descartar", color = MaterialTheme.colorScheme.error)
@@ -236,7 +348,10 @@ fun LyapeApp(modifier: Modifier = Modifier) {
             dismissButton = {
                 TextButton(
                     enabled = !formSaving,
-                    onClick = { confirmingDiscard = false },
+                    onClick = {
+                        confirmingDiscard = false
+                        pendingSettings = false
+                    },
                 ) {
                     Text("Seguir editando")
                 }
@@ -268,6 +383,9 @@ private fun LyapeTopBar(
                 .fillMaxWidth()
                 .windowInsetsPadding(
                     WindowInsets.statusBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+                )
+                .windowInsetsPadding(
+                    WindowInsets.displayCutout.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
                 )
                 .heightIn(min = 56.dp)
                 .padding(horizontal = 6.dp),
@@ -392,9 +510,10 @@ private fun BottomTabItem(
     }
 }
 
+@Composable
 private fun iconFor(tab: BottomTab): ImageVector = when (tab) {
     BottomTab.SUMMARY -> Icons.Filled.Home
     BottomTab.MOVEMENTS -> Icons.AutoMirrored.Filled.List
-    BottomTab.CLOSE -> Icons.Filled.CheckCircle
+    BottomTab.ACCOUNTS -> ImageVector.vectorResource(R.drawable.ic_accounts_wallet)
     BottomTab.SETTINGS -> Icons.Filled.Settings
 }

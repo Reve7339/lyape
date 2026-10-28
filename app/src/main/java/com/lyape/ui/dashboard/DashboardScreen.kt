@@ -1,6 +1,5 @@
 package com.lyape.ui.dashboard
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -29,7 +28,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -49,9 +47,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lyape.domain.MonthlyPlan
+import com.lyape.domain.PeriodReport
 import com.lyape.domain.MonthlyProgress
 import com.lyape.domain.MonthlyProgressCalculator
-import com.lyape.domain.MovementClassification
+import com.lyape.domain.GoalType
 import com.lyape.domain.PeriodReportCalculator
 import com.lyape.domain.ReportPeriod
 import com.lyape.ui.components.LyapeCard
@@ -62,22 +61,29 @@ import com.lyape.ui.format.formatReportRangeLabel
 import com.lyape.ui.rememberMonthlyPlanRepository
 import com.lyape.ui.rememberMovementRepository
 import com.lyape.ui.theme.PillShape
+import kotlinx.coroutines.flow.combine
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 
 @Composable
 fun DashboardScreen(
-    onReviewPending: () -> Unit,
     onConfigurePlan: (YearMonth) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenAccounts: () -> Unit = {},
+    onOpenAccount: (String) -> Unit = {},
+    onOpenReports: () -> Unit = {},
+    reportsOnly: Boolean = false,
 ) {
     val movementRepository = rememberMovementRepository()
     val planRepository = rememberMonthlyPlanRepository()
     val zone = remember { ZoneId.systemDefault() }
+    // Inicio y Reportes comparten composición, pero no la posición de lectura.
+    val homeScroll = rememberScrollState()
+    val reportsScroll = rememberScrollState()
 
     var periodName by rememberSaveable { mutableStateOf(ReportPeriod.MONTH.name) }
-    val period = remember(periodName) { ReportPeriod.valueOf(periodName) }
+    val period = if (reportsOnly) ReportPeriod.valueOf(periodName) else ReportPeriod.MONTH
     var referenceEpochDay by rememberSaveable { mutableStateOf(LocalDate.now().toEpochDay()) }
     val referenceDate = LocalDate.ofEpochDay(referenceEpochDay)
     val today = LocalDate.now()
@@ -85,30 +91,22 @@ fun DashboardScreen(
     val range = remember(period, referenceDate) {
         PeriodReportCalculator.rangeFor(period, referenceDate, zone)
     }
-    val movements by remember(movementRepository, range) {
-        movementRepository.observeInRange(range)
-    }.collectAsStateWithLifecycle(initialValue = emptyList())
-    val report = remember(movements, period, referenceDate) {
-        PeriodReportCalculator.calculate(movements, period, referenceDate, zone)
-    }
-    val viewingToday = today >= report.startDate && today <= report.endDateInclusive
-
     val month = remember(referenceDate) { YearMonth.from(referenceDate) }
-    val plan by remember(planRepository, month) {
-        planRepository.observePlan(month)
-    }.collectAsStateWithLifecycle(initialValue = MonthlyPlan.empty(month))
-    val progress = remember(report.totals.businessCents, plan) {
-        MonthlyProgressCalculator.calculate(report.totals.businessCents, plan)
-    }
-
-    val todayMovements by remember(movementRepository) {
-        movementRepository.observeDay(LocalDate.now())
-    }.collectAsStateWithLifecycle(initialValue = emptyList())
-    val pendingToday = remember(todayMovements) {
-        todayMovements.count {
-            !it.reviewed && it.classification != MovementClassification.EXCLUDED
-        }
-    }
+    var retry by remember { mutableStateOf(0) }
+    val reading by remember(movementRepository, planRepository, range, month, today, retry) {
+        combine(
+            movementRepository.observeInRange(range),
+            planRepository.observePlan(month),
+        ) { movements, plan ->
+            DashboardData(
+                report = PeriodReportCalculator.calculate(movements, period, referenceDate, zone),
+                plan = plan,
+            )
+        }.asScreenRead()
+    }.collectAsStateWithLifecycle(initialValue = ScreenRead.Loading)
+    val data = (reading as? ScreenRead.Ready)?.value
+    val viewingToday = today >= range.start.atZone(zone).toLocalDate() &&
+        today < range.endExclusive.atZone(zone).toLocalDate()
 
     fun shiftReference(offset: Int) {
         val date = LocalDate.ofEpochDay(referenceEpochDay)
@@ -122,29 +120,72 @@ fun DashboardScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(if (reportsOnly) reportsScroll else homeScroll)
             .padding(horizontal = 17.dp),
     ) {
         Spacer(Modifier.height(8.dp))
-        Text(
-            text = "Resumen",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-
-        Spacer(Modifier.height(12.dp))
-        PeriodSelector(selected = period, onSelect = { periodName = it.name })
-
-        // Los chips crecen hasta 48 dp de área táctil, así que sin esta separación tocarían las
-        // flechas de periodo que están justo debajo.
-        Spacer(Modifier.height(8.dp))
+        if (!reportsOnly) {
+            Text(
+                text = "Resumen",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Spacer(Modifier.height(12.dp))
+        }
+        if (reportsOnly) {
+            PeriodSelector(selected = period, onSelect = { periodName = it.name })
+            Spacer(Modifier.height(8.dp))
+        }
         RangeSelector(
-            label = formatReportRangeLabel(period, report.startDate, report.endDateInclusive),
+            label = formatReportRangeLabel(
+                period,
+                range.start.atZone(zone).toLocalDate(),
+                range.endExclusive.atZone(zone).toLocalDate().minusDays(1),
+            ),
             showToday = !viewingToday,
             onToday = { referenceEpochDay = LocalDate.now().toEpochDay() },
             onPrevious = { shiftReference(-1) },
             onNext = { shiftReference(1) },
         )
+
+        if (data == null) {
+            ReadFeedback(
+                failed = reading is ScreenRead.Failed,
+                message = "No se pudo leer el resumen.",
+                onRetry = { retry++ },
+            )
+            return@Column
+        }
+        val report = data.report
+        if (report.calculationError) {
+            Text(
+                text = "No se pudieron calcular los importes de este periodo. Revisa los movimientos o vuelve a intentarlo.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+            TextButton(onClick = { retry++ }) { Text("Reintentar") }
+            return@Column
+        }
+        val progress = MonthlyProgressCalculator.calculate(report.totals.businessCents, data.plan)
+        if (progress.calculationError) {
+            Text("Los importes del plan superan el límite de cálculo.", color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = { onConfigurePlan(month) }) { Text("Revisar plan") }
+            return@Column
+        }
+
+        if (!reportsOnly) {
+            BalancedHome(
+                report = report,
+                progress = progress,
+                month = month,
+                onOpenAccounts = onOpenAccounts,
+                onOpenAccount = onOpenAccount,
+                onConfigurePlan = { onConfigurePlan(month) },
+                onOpenReports = onOpenReports,
+            )
+            Spacer(Modifier.height(28.dp))
+            return@Column
+        }
 
         Spacer(Modifier.height(4.dp))
         Text(
@@ -167,7 +208,6 @@ fun DashboardScreen(
         Text(
             text = compactSummaryLabel(
                 records = report.totals.movementCount,
-                pending = report.pendingActiveCount,
                 personalCents = report.totals.personalCents,
             ),
             style = MaterialTheme.typography.bodyMedium,
@@ -212,11 +252,14 @@ fun DashboardScreen(
             )
         }
 
-        Spacer(Modifier.height(12.dp))
-        ReviewStrip(pendingCount = pendingToday, onClick = onReviewPending)
         Spacer(Modifier.height(28.dp))
     }
 }
+
+private data class DashboardData(
+    val report: PeriodReport,
+    val plan: MonthlyPlan,
+)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -366,7 +409,7 @@ private fun PlanCard(
         }
 
         if (
-            progress.hasExpenses && progress.hasGoal &&
+            progress.hasExpenses && progress.hasGoal && progress.goalType == GoalType.INCOME &&
             progress.goalCents.orEmptyAmount() < progress.totalExpensesCents
         ) {
             Spacer(Modifier.height(12.dp))
@@ -428,15 +471,13 @@ private fun ExpensesRow(progress: MonthlyProgress) {
 }
 
 @Composable
-private fun GoalRow(progress: MonthlyProgress) {
+internal fun GoalRow(progress: MonthlyProgress) {
     val goal = progress.goalCents ?: return
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "Meta",
+            text = if (progress.goalType == GoalType.PROFIT) "Meta de ganancia" else "Meta de ingresos",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
@@ -450,7 +491,7 @@ private fun GoalRow(progress: MonthlyProgress) {
     Text(
         text = when {
             !progress.goalReached ->
-                "Faltan ${formatCents(progress.goalRemainingCents ?: 0L)} para alcanzarla"
+                "Faltan ${formatCents(progress.goalRemainingCents ?: 0L)} de ingresos"
             (progress.goalExceededCents ?: 0L) == 0L -> "Alcanzada"
             else -> "Superada por ${formatCents(progress.goalExceededCents ?: 0L)}"
         },
@@ -461,11 +502,14 @@ private fun GoalRow(progress: MonthlyProgress) {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
     )
+    if (progress.goalType == GoalType.PROFIT) {
+        Text("Ingresos necesarios: ${formatCents(requireNotNull(progress.requiredIncomeCents))}", style = MaterialTheme.typography.bodySmall)
+    }
     Spacer(Modifier.height(8.dp))
     ProgressBar(
-        current = progress.incomeCents,
+        current = if (progress.goalType == GoalType.PROFIT) progress.signedProfitCents else progress.incomeCents,
         target = goal,
-        description = "Avance hacia la meta de ingresos",
+        description = if (progress.goalType == GoalType.PROFIT) "Avance hacia la meta de ganancia" else "Avance hacia la meta de ingresos",
     )
 }
 
@@ -486,65 +530,6 @@ private fun ProgressBar(current: Long, target: Long, description: String) {
         trackColor = MaterialTheme.colorScheme.primaryContainer,
         drawStopIndicator = {},
     )
-}
-
-@Composable
-private fun ReviewStrip(
-    pendingCount: Int,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val hasPending = pendingCount > 0
-    val surfaceModifier = modifier
-        .fillMaxWidth()
-        .heightIn(min = 52.dp)
-    val shape = MaterialTheme.shapes.medium
-    val color = MaterialTheme.colorScheme.primary
-    val contentColor = MaterialTheme.colorScheme.onPrimary
-    val border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
-
-    if (hasPending) {
-        Surface(
-            onClick = onClick,
-            modifier = surfaceModifier,
-            shape = shape,
-            color = color,
-            contentColor = contentColor,
-            border = border,
-        ) {
-            ReviewStripRow(pendingCount = pendingCount, showAction = true)
-        }
-    } else {
-        Surface(
-            modifier = surfaceModifier,
-            shape = shape,
-            color = color,
-            contentColor = contentColor,
-            border = border,
-        ) {
-            ReviewStripRow(pendingCount = pendingCount, showAction = false)
-        }
-    }
-}
-
-@Composable
-private fun ReviewStripRow(pendingCount: Int, showAction: Boolean) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 14.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = pendingTodayLabel(pendingCount),
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.weight(1f),
-        )
-        if (showAction) {
-            Text(text = "Revisar", style = MaterialTheme.typography.labelMedium)
-        }
-    }
 }
 
 private fun periodLabel(period: ReportPeriod): String = when (period) {

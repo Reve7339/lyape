@@ -26,17 +26,29 @@ data class MovementUi(
     val avatarLabel: String,
     val reviewed: Boolean,
     val previousClassification: MovementClassification?,
+    val accountLabel: String? = null,
+    val mediumLabel: String? = null,
 ) {
     val isExcluded: Boolean get() = classification == MovementClassification.EXCLUDED
 }
 
-private val TIME_FORMATTER = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
 private val DATE_LABEL_FORMATTER =
     DateTimeFormatter.ofPattern("d MMM yyyy", Locale.forLanguageTag("es-PE"))
 
-fun Movement.toUi(zone: ZoneId = ZoneId.systemDefault()): MovementUi {
+private fun timeFormatter(use24Hour: Boolean): DateTimeFormatter =
+    DateTimeFormatter.ofPattern(
+        if (use24Hour) "H:mm" else "h:mm a",
+        Locale.getDefault(),
+    )
+
+fun Movement.toUi(
+    zone: ZoneId = ZoneId.systemDefault(),
+    use24Hour: Boolean = false,
+): MovementUi {
     val localDateTime = occurredAt.atZone(zone)
-    val timeLabel = TIME_FORMATTER.format(localDateTime).lowercase(Locale.ROOT)
+    val timeLabel = timeFormatter(use24Hour)
+        .format(localDateTime)
+        .lowercase(Locale.getDefault())
     return MovementUi(
         id = id.toString(),
         title = movementTitle(senderName, source),
@@ -54,6 +66,11 @@ fun Movement.toUi(zone: ZoneId = ZoneId.systemDefault()): MovementUi {
         avatarLabel = avatarLabelFor(senderName),
         reviewed = reviewed,
         previousClassification = previousClassification,
+        mediumLabel = when (medium) {
+            com.lyape.domain.PaymentMedium.YAPE -> "Yape"
+            com.lyape.domain.PaymentMedium.PLIN -> "Plin"
+            com.lyape.domain.PaymentMedium.UNKNOWN -> null
+        },
     )
 }
 

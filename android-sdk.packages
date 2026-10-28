@@ -1,4 +1,4 @@
 # LYape build requirements; shared SDK with side-by-side platform versions.
 platform-tools
-platforms;android-35
+platforms;android-36
 build-tools;35.0.0

@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      prepare_play_bundle:
+        description: 'Generar AAB firmado para pruebas (solo main; NO publica)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -40,7 +45,7 @@ jobs:
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           cmdline-tools-version: '12266719'
-          packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
+          packages: 'platforms;android-36 build-tools;35.0.0 platform-tools'
           log-accepted-android-sdk-licenses: false
       - name: Probar la propia puerta de calidad
         run: python3 -m unittest discover -s scripts/tests -v
@@ -79,7 +84,7 @@ jobs:
       fail-fast: false
       matrix:
         # Mínimo soportado y target actual. Solo emuladores, nunca un teléfono físico.
-        api: [26, 35]
+        api: [26, 35, 36]
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
@@ -95,7 +100,7 @@ jobs:
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           cmdline-tools-version: '12266719'
-          packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
+          packages: 'platforms;android-36 build-tools;35.0.0 platform-tools'
           log-accepted-android-sdk-licenses: false
       - name: Habilitar aceleración del emulador
         run: |
@@ -113,6 +118,15 @@ jobs:
           script: |
             ./gradlew "-Dorg.gradle.jvmargs=$CI_GRADLE_JVM_ARGS" --no-daemon --console=plain :app:connectedDebugAndroidTest
             python3 scripts/verify_test_reports.py android
+            mkdir -p delivery/play-screenshots
+            adb pull /sdcard/Android/data/com.lyape/files/play-screenshots/. delivery/play-screenshots/
+      - name: Guardar capturas con datos ficticios
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: capturas-play-api-${{ matrix.api }}
+          path: delivery/play-screenshots/
+          if-no-files-found: error
+          retention-days: 14
       - name: Guardar reportes de Android
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -124,11 +138,90 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  play_bundle:
+    name: AAB para pruebas (sin publicar)
+    needs: [unit, android]
+    if: github.event_name == 'workflow_dispatch' && inputs.prepare_play_bundle && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@da187c8e6ffbd3802e00f2477aa5a822b25f2dda
+        with:
+          cache-read-only: true
+      - name: Preparar SDK de compilación
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          cmdline-tools-version: '12266719'
+          packages: 'platforms;android-36 build-tools;35.0.0 platform-tools'
+          log-accepted-android-sdk-licenses: false
+      - name: Compilar y verificar AAB firmado
+        env:
+          LYAPE_RELEASE_KEYSTORE_BASE64: ${{ secrets.LYAPE_RELEASE_KEYSTORE_BASE64 }}
+          LYAPE_RELEASE_STORE_PASSWORD: ${{ secrets.LYAPE_RELEASE_STORE_PASSWORD }}
+          LYAPE_RELEASE_KEY_ALIAS: ${{ secrets.LYAPE_RELEASE_KEY_ALIAS }}
+          LYAPE_RELEASE_KEY_PASSWORD: ${{ secrets.LYAPE_RELEASE_KEY_PASSWORD }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          for name in LYAPE_RELEASE_KEYSTORE_BASE64 LYAPE_RELEASE_STORE_PASSWORD LYAPE_RELEASE_KEY_ALIAS LYAPE_RELEASE_KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Falta el secreto de firma $name."
+              exit 1
+            fi
+          done
+          umask 077
+          export LYAPE_RELEASE_STORE_FILE="$RUNNER_TEMP/lyape-play.keystore"
+          trap 'rm -f -- "$LYAPE_RELEASE_STORE_FILE"' EXIT
+          printf '%s' "$LYAPE_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$LYAPE_RELEASE_STORE_FILE"
+          ./gradlew "-Dorg.gradle.jvmargs=$CI_GRADLE_JVM_ARGS" --no-daemon --console=plain -Plyape.requireReleaseSigning=true :app:bundleRelease
+          bundletool="$RUNNER_TEMP/bundletool.jar"
+          curl --fail --location --silent --show-error --retry 3 --max-time 180 \
+            https://github.com/google/bundletool/releases/download/1.18.2/bundletool-all-1.18.2.jar -o "$bundletool"
+          printf '%s  %s\n' 378b5434cd1378bef6b2bc527b8c7f0ff2584b273830335bce54d6d0813c8584 "$bundletool" | sha256sum --check
+          bundle=app/build/outputs/bundle/release/app-release.aab
+          mkdir -p delivery/play
+          java -Xmx512m -jar "$bundletool" validate --bundle="$bundle"
+          java -Xmx512m -jar "$bundletool" dump manifest --bundle="$bundle" --module=base > delivery/play/manifest.xml
+          python3 scripts/verify_play_bundle.py --manifest delivery/play/manifest.xml > delivery/play/VERSION.txt
+          jarsigner -J-Duser.language=en -verify -strict \
+            -keystore "$LYAPE_RELEASE_STORE_FILE" -storepass:env LYAPE_RELEASE_STORE_PASSWORD \
+            "$bundle" "$LYAPE_RELEASE_KEY_ALIAS" > delivery/play/SIGNATURE.txt
+          grep -q 'jar verified' delivery/play/SIGNATURE.txt
+          keytool -J-Duser.language=en -list -v -keystore "$LYAPE_RELEASE_STORE_FILE" \
+            -storepass:env LYAPE_RELEASE_STORE_PASSWORD -alias "$LYAPE_RELEASE_KEY_ALIAS" > delivery/play/CERTIFICATE.txt
+          if grep -q 'CN=Android Debug' delivery/play/CERTIFICATE.txt; then
+            echo '::error::La clave debug no es válida para Play.'
+            exit 1
+          fi
+          cp "$bundle" delivery/play/LYape-testing.aab
+          printf '%s\n' "$SOURCE_COMMIT" > delivery/play/COMMIT.txt
+          cd delivery/play
+          sha256sum LYape-testing.aab > SHA256SUMS
+      - name: Guardar AAB para carga manual a pruebas
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: lyape-play-testing-${{ github.run_number }}
+          path: delivery/play/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retirar clave temporal
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/lyape-play.keystore"
+
   delivery:
     name: Publicar APK release
     needs: [unit, android]
     # Las ramas y PR solo verifican. Una etiqueta vX.Y.Z publica tras pasar toda la CI.
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/tags/v')
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/tags/v') && !inputs.prepare_play_bundle
     permissions:
       contents: write
     runs-on: ubuntu-24.04
@@ -148,7 +241,7 @@ jobs:
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           cmdline-tools-version: '12266719'
-          packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
+          packages: 'platforms;android-36 build-tools;35.0.0 platform-tools'
           log-accepted-android-sdk-licenses: false
       - name: Compilar y firmar con la clave de publicación
         env:

@@ -9,10 +9,13 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.lyape.data.AccountsRepository
 import com.lyape.data.AppDatabase
 import com.lyape.data.MovementRepository
+import com.lyape.domain.CaptureProvider
 import com.lyape.domain.MovementClassification
 import com.lyape.domain.MovementSource
+import com.lyape.domain.PaymentMedium
 import com.lyape.preferences.AppPreferences
 import com.lyape.testing.testMovements
 import kotlinx.coroutines.Dispatchers
@@ -46,8 +49,19 @@ class CapturePipelineIntegrationTest {
 
     private lateinit var database: AppDatabase
     private lateinit var repository: MovementRepository
+    private lateinit var accounts: AccountsRepository
     private lateinit var preferences: AppPreferences
     private lateinit var ingestor: NotificationIngestor
+
+    private val yapeSource: CaptureProviderSpec =
+        requireNotNull(CaptureProviders.production.forPackage(YapePackage.PROVISIONAL_PACKAGE_ID))
+    private val fakeInterbankPackage = "test.fake.interbank"
+    private val fakeInterbankSource = CaptureProviderSpec(
+        provider = CaptureProvider.INTERBANK_PLIN,
+        packageNames = setOf(fakeInterbankPackage),
+        enabled = true,
+        parser = NotificationPayloadParser(NotificationParser::parse),
+    )
 
     @Before
     fun setUp() {
@@ -56,8 +70,13 @@ class CapturePipelineIntegrationTest {
             .allowMainThreadQueries()
             .build()
         repository = MovementRepository(database.movementDao())
+        accounts = AccountsRepository(database)
         preferences = AppPreferences(context)
-        ingestor = NotificationIngestor(repository = repository, preferences = preferences)
+        ingestor = NotificationIngestor(
+            repository = repository,
+            preferences = preferences,
+            accountResolver = accounts,
+        )
         // Las preferencias viven en el proceso y no se borran entre pruebas: se parte siempre de
         // "sin pausar".
         runBlocking { preferences.setCapturePaused(false) }
@@ -70,6 +89,28 @@ class CapturePipelineIntegrationTest {
 
     // --- Adaptador ---
 
+    @Test fun proveedorInterbankDeProduccionGuardaUnaFilaYUnEventoConCentimos() = runBlocking {
+        val source = requireNotNull(CaptureProviders.production.forPackage(InterbankPackage.PACKAGE_NAME))
+        val bank = accounts.addAccount("Interbank")
+        accounts.setCaptureAccount(CaptureProvider.INTERBANK_PLIN, bank)
+        val input = requireInput(statusBar(notification(title = "Interbank", text = "Persona Ejemplo te ha plineado\nS/ 1.25"), pkg = InterbankPackage.PACKAGE_NAME), source)
+        val first = ingestor.ingest(input, source)
+        assertTrue(first is IngestResult.Stored)
+        assertEquals(PaymentMedium.PLIN, (first as IngestResult.Stored).payment.medium)
+        assertDuplicate(ingestor.ingest(input, source))
+        val rows = database.movementDao().getInRange(0, Long.MAX_VALUE)
+        assertEquals(1, rows.size)
+        assertEquals(bank, rows.single().accountId)
+        assertEquals(125L, rows.single().amountCents)
+        assertStored(ingestor.ingest(input.copy(key = "otro-cobro", postedAt = input.postedAt.plusSeconds(1)), source))
+        assertEquals(2, database.movementDao().getInRange(0, Long.MAX_VALUE).size)
+    }
+
+    @Test fun resumenDeGrupoSeDescartaAntesDelParser() {
+        val summary = notification().apply { flags = flags or Notification.FLAG_GROUP_SUMMARY }
+        assertNull(NotificationAdapter.toInput(statusBar(summary), yapeSource))
+    }
+
     @Test
     fun extraeLosCamposDeUnaNotificacionValida() {
         val sbn = statusBar(
@@ -79,7 +120,7 @@ class CapturePipelineIntegrationTest {
             ),
         )
 
-        val input = NotificationAdapter.toInput(sbn)
+        val input = NotificationAdapter.toInput(sbn, yapeSource)
 
         assertNotNull(input)
         input!!
@@ -92,7 +133,10 @@ class CapturePipelineIntegrationTest {
 
     @Test
     fun toleraCamposAusentesSinLanzarExcepciones() {
-        val input = NotificationAdapter.toInput(statusBar(Notification().apply { extras = Bundle() }))
+        val input = NotificationAdapter.toInput(
+            statusBar(Notification().apply { extras = Bundle() }),
+            yapeSource,
+        )
 
         assertNotNull(input)
         assertEquals("", input!!.title)
@@ -102,7 +146,12 @@ class CapturePipelineIntegrationTest {
 
     @Test
     fun unaNotificacionSinContenidoNoProduceEntrada() {
-        assertNull(NotificationAdapter.toInput(statusBar(Notification().apply { extras = null })))
+        assertNull(
+            NotificationAdapter.toInput(
+                statusBar(Notification().apply { extras = null }),
+                yapeSource,
+            ),
+        )
     }
 
     @Test
@@ -112,9 +161,26 @@ class CapturePipelineIntegrationTest {
             pkg = "com.otra.app",
         )
 
-        assertNull(NotificationAdapter.toInput(foreign))
-        assertFalse(NotificationAdapter.isFromYape("com.otra.app"))
-        assertTrue(NotificationAdapter.isFromYape(YapePackage.PROVISIONAL_PACKAGE_ID))
+        assertNull(NotificationAdapter.toInput(foreign, yapeSource))
+        assertNull(CaptureProviders.production.forPackage("com.otra.app"))
+        assertNotNull(CaptureProviders.production.forPackage(YapePackage.PROVISIONAL_PACKAGE_ID))
+    }
+
+    @Test
+    fun unProveedorFalsoSeFiltraPorSuPaqueteAntesDeLeerExtras() {
+        val foreign = statusBar(
+            notification(text = "Persona Ejemplo te ha plineado\nS/ 1.00"),
+            pkg = "com.otra.app",
+        )
+        val fake = statusBar(
+            notification(text = "Persona Ejemplo te ha plineado\nS/ 1.00"),
+            pkg = fakeInterbankPackage,
+        )
+
+        assertNull(NotificationAdapter.toInput(foreign, fakeInterbankSource))
+        val input = NotificationAdapter.toInput(fake, fakeInterbankSource)
+        assertNotNull(input)
+        assertEquals(fakeInterbankPackage, input!!.packageName)
     }
 
     // --- Recorrido completo ---
@@ -123,13 +189,19 @@ class CapturePipelineIntegrationTest {
     fun unaNotificacionValidaGuardaExactamenteUnMovimiento() = runBlocking {
         val input = requireInput(statusBar(notification(text = "María Rojas te pagó S/ 35.00")))
 
-        assertEquals(IngestResult.STORED, ingestor.ingest(input))
+        val result = ingestor.ingest(input, yapeSource)
+        assertStored(result)
+        val event = (result as IngestResult.Stored).payment
+        assertEquals(3_500L, event.amountCents)
+        assertEquals(PaymentMedium.YAPE, event.medium)
 
         val stored = repository.testMovements()
         assertEquals(1, stored.size)
         val movement = stored.single()
         assertEquals(3_500L, movement.amountCents)
         assertEquals(MovementSource.NOTIFICATION, movement.source)
+        assertEquals(PaymentMedium.YAPE, movement.medium)
+        assertEquals("yape", movement.accountId)
         assertEquals(MovementClassification.BUSINESS, movement.classification)
         assertFalse(movement.reviewed)
         assertEquals("María Rojas", movement.senderName)
@@ -140,8 +212,8 @@ class CapturePipelineIntegrationTest {
     fun laEntregaDobleGuardaSoloUnMovimiento() = runBlocking {
         val input = requireInput(statusBar(notification(text = "María Rojas te pagó S/ 35.00")))
 
-        assertEquals(IngestResult.STORED, ingestor.ingest(input))
-        assertEquals(IngestResult.DUPLICATE, ingestor.ingest(input))
+        assertStored(ingestor.ingest(input, yapeSource))
+        assertDuplicate(ingestor.ingest(input, yapeSource))
         assertEquals(1, repository.testMovements().size)
     }
 
@@ -151,14 +223,14 @@ class CapturePipelineIntegrationTest {
 
         val results = withContext(Dispatchers.Default) {
             listOf(
-                async { ingestor.ingest(input) },
-                async { ingestor.ingest(input) },
-                async { ingestor.ingest(input) },
+                async { ingestor.ingest(input, yapeSource) },
+                async { ingestor.ingest(input, yapeSource) },
+                async { ingestor.ingest(input, yapeSource) },
             ).awaitAll()
         }
 
-        assertEquals(1, results.count { it == IngestResult.STORED })
-        assertEquals(2, results.count { it == IngestResult.DUPLICATE })
+        assertEquals(1, results.count { it is IngestResult.Stored })
+        assertEquals(2, results.count { it is IngestResult.Duplicate })
         assertEquals(1, repository.testMovements().size)
     }
 
@@ -166,7 +238,7 @@ class CapturePipelineIntegrationTest {
     fun unFormatoDesconocidoNoCreaMovimientos() = runBlocking {
         val input = requireInput(statusBar(notification(text = "Tienes una función nueva disponible")))
 
-        assertEquals(IngestResult.UNRECOGNIZED, ingestor.ingest(input))
+        assertUnrecognized(ingestor.ingest(input, yapeSource))
         assertTrue(repository.testMovements().isEmpty())
     }
 
@@ -175,7 +247,7 @@ class CapturePipelineIntegrationTest {
         preferences.setCapturePaused(true)
         val input = requireInput(statusBar(notification(text = "María Rojas te pagó S/ 35.00")))
 
-        assertEquals(IngestResult.PAUSED, ingestor.ingest(input))
+        assertPaused(ingestor.ingest(input, yapeSource))
         assertTrue(repository.testMovements().isEmpty())
     }
 
@@ -187,10 +259,14 @@ class CapturePipelineIntegrationTest {
             override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences =
                 error("La captura no debe escribir preferencias")
         }
-        val blockedIngestor = NotificationIngestor(repository, AppPreferences(failingStore))
+        val blockedIngestor = NotificationIngestor(
+            repository,
+            AppPreferences(failingStore),
+            accounts,
+        )
         val input = requireInput(statusBar(notification(text = "María Rojas te pagó S/ 35.00")))
 
-        assertEquals(IngestResult.PAUSED, blockedIngestor.ingest(input))
+        assertPaused(blockedIngestor.ingest(input, yapeSource))
         assertTrue(repository.testMovements().isEmpty())
     }
 
@@ -199,8 +275,8 @@ class CapturePipelineIntegrationTest {
         val first = input(key = "clave-repetida", text = "María Rojas te pagó S/ 35.00")
         val second = input(key = "clave-repetida", text = "Carlos Acuña te pagó S/ 20.00")
 
-        assertEquals(IngestResult.STORED, ingestor.ingest(first))
-        assertEquals(IngestResult.DUPLICATE, ingestor.ingest(second))
+        assertStored(ingestor.ingest(first, yapeSource))
+        assertDuplicate(ingestor.ingest(second, yapeSource))
         assertEquals(1, repository.testMovements().size)
     }
 
@@ -213,8 +289,8 @@ class CapturePipelineIntegrationTest {
             postedAt = POST_TIME + 3_600_000,
         )
 
-        assertEquals(IngestResult.STORED, ingestor.ingest(first))
-        assertEquals(IngestResult.STORED, ingestor.ingest(second))
+        assertStored(ingestor.ingest(first, yapeSource))
+        assertStored(ingestor.ingest(second, yapeSource))
         assertEquals(2, repository.testMovements().size)
     }
 
@@ -224,8 +300,8 @@ class CapturePipelineIntegrationTest {
         val first = input(key = "clave-a", text = "María Rojas te pagó S/ 35.00")
         val second = input(key = "clave-b", text = "María Rojas te pagó S/ 35.00")
 
-        assertEquals(IngestResult.STORED, ingestor.ingest(first))
-        assertEquals(IngestResult.STORED, ingestor.ingest(second))
+        assertStored(ingestor.ingest(first, yapeSource))
+        assertStored(ingestor.ingest(second, yapeSource))
         assertEquals(2, repository.testMovements().size)
     }
 
@@ -234,8 +310,8 @@ class CapturePipelineIntegrationTest {
         val first = input(key = null, text = "María Rojas te pagó S/ 35.00")
         val second = input(key = "clave-a", text = "María Rojas te pagó S/ 35.00")
 
-        assertEquals(IngestResult.STORED, ingestor.ingest(first))
-        assertEquals(IngestResult.DUPLICATE, ingestor.ingest(second))
+        assertStored(ingestor.ingest(first, yapeSource))
+        assertDuplicate(ingestor.ingest(second, yapeSource))
         assertEquals(1, repository.testMovements().size)
     }
 
@@ -244,9 +320,25 @@ class CapturePipelineIntegrationTest {
         val first = input(key = "clave-a", text = "María Rojas te pagó S/ 35.00")
         val second = input(key = null, text = "María Rojas te pagó S/ 35.00")
 
-        assertEquals(IngestResult.STORED, ingestor.ingest(first))
-        assertEquals(IngestResult.DUPLICATE, ingestor.ingest(second))
+        assertStored(ingestor.ingest(first, yapeSource))
+        assertDuplicate(ingestor.ingest(second, yapeSource))
         assertEquals(1, repository.testMovements().size)
+    }
+
+    private fun assertStored(result: IngestResult) {
+        assertTrue("Se esperaba guardado, pero fue $result", result is IngestResult.Stored)
+    }
+
+    private fun assertDuplicate(result: IngestResult) {
+        assertTrue("Se esperaba duplicado, pero fue $result", result is IngestResult.Duplicate)
+    }
+
+    private fun assertPaused(result: IngestResult) {
+        assertTrue("Se esperaba pausado, pero fue $result", result is IngestResult.Paused)
+    }
+
+    private fun assertUnrecognized(result: IngestResult) {
+        assertTrue("Se esperaba desconocido, pero fue $result", result is IngestResult.Unrecognized)
     }
 
     private fun input(
@@ -261,8 +353,12 @@ class CapturePipelineIntegrationTest {
         postedAt = Instant.ofEpochMilli(postedAt),
     )
 
-    private fun requireInput(sbn: StatusBarNotification): NotificationInput =
-        NotificationAdapter.toInput(sbn) ?: error("La notificación de prueba no produjo entrada.")
+    private fun requireInput(
+        sbn: StatusBarNotification,
+        source: CaptureProviderSpec = yapeSource,
+    ): NotificationInput =
+        NotificationAdapter.toInput(sbn, source)
+            ?: error("La notificación de prueba no produjo entrada.")
 
     @Suppress("DEPRECATION")
     private fun statusBar(

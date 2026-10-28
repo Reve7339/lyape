@@ -238,6 +238,23 @@ class PeriodReportCalculatorTest {
     }
 
     @Test
+    fun `un total fuera de rango se marca en el reporte`() {
+        val report = PeriodReportCalculator.calculate(
+            movements = listOf(
+                movement(Long.MAX_VALUE, at(2026, 10, 15, 9, 0)),
+                movement(1L, at(2026, 10, 15, 10, 0)),
+            ),
+            period = ReportPeriod.DAY,
+            reference = LocalDate.of(2026, 10, 15),
+            zone = lima,
+        )
+
+        assertTrue(report.calculationError)
+        assertTrue(report.totals.calculationError)
+        assertTrue(report.bars.any { it.calculationError })
+    }
+
+    @Test
     fun `rangeFor no expone el periodo anual`() {
         val day = PeriodReportCalculator.rangeFor(ReportPeriod.DAY, LocalDate.of(2026, 10, 15), lima)
         val week = PeriodReportCalculator.rangeFor(ReportPeriod.WEEK, LocalDate.of(2026, 10, 15), lima)

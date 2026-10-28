@@ -6,6 +6,8 @@ import com.lyape.domain.MovementClassification
 import com.lyape.domain.MovementEdits
 import com.lyape.domain.MovementFactory
 import com.lyape.domain.MovementCounts
+import com.lyape.domain.MovementSource
+import com.lyape.domain.PaymentMedium
 import com.lyape.domain.normalizeMovementSearch
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
@@ -27,11 +29,21 @@ import java.util.UUID
  * [TotalsCalculator] y las transiciones de conciliación en [MovementEdits], de modo que exista
  * una única regla de negocio. Ninguna operación borra filas: anular usa `EXCLUDED`.
  */
+/** Operaciones mínimas que necesita el ingestor; permite probar fallos sin Room. */
+interface CaptureMovementStore {
+    suspend fun findDedupCandidates(candidate: Movement, window: Duration): List<Movement>
+
+    suspend fun add(movement: Movement)
+}
+
+/** La cuenta explícita dejó de existir o dejó de ser válida; no es un fallo de lectura. */
+class AccountUnavailableException(message: String) : IllegalArgumentException(message)
+
 class MovementRepository(
     private val dao: MovementDao,
     private val now: () -> Instant = Instant::now,
     private val newId: () -> UUID = UUID::randomUUID,
-) {
+) : CaptureMovementStore, MovementFormStore {
 
     fun history(
         classification: MovementClassification?,
@@ -79,23 +91,39 @@ class MovementRepository(
      * [com.lyape.notification.DuplicateDetector], que distingue "misma entrega" (clave e instante
      * iguales) de "pago distinto con la misma clave".
      */
-    suspend fun findDedupCandidates(candidate: Movement, window: Duration): List<Movement> {
+    override suspend fun findDedupCandidates(candidate: Movement, window: Duration): List<Movement> {
         val center = candidate.occurredAt.toEpochMilli()
         val delta = window.toMillis()
         return dao.findDedupCandidates(
             notificationKey = candidate.notificationKey,
             deduplicationHash = candidate.deduplicationHash,
+            medium = candidate.medium.takeUnless { it == PaymentMedium.UNKNOWN }?.name,
             fromMillis = center - delta,
             toMillis = center + delta,
         ).map(MovementEntity::toDomain)
     }
 
-    suspend fun add(movement: Movement) = dao.insert(movement.toEntity())
+    /**
+     * Inserta exactamente lo recibido. La captura debe resolver su cuenta explícita antes de
+     * llamar aquí; no se asigna Yape a notificaciones sin cuenta.
+     */
+    override suspend fun add(movement: Movement) {
+        if (movement.source == MovementSource.NOTIFICATION) {
+            require(movement.amountCents > 0L) { "Un cobro capturado debe ser mayor que cero." }
+        }
+        validateAccount(movement.accountId)
+        dao.insert(movement.toEntity())
+    }
 
-    suspend fun addAll(movements: List<Movement>) =
-        dao.insertAll(movements.map(Movement::toEntity))
+    suspend fun addAll(movements: List<Movement>) {
+        movements.forEach { validateAccount(it.accountId) }
+        dao.insertAll(movements.map { it.toEntity() })
+    }
 
-    suspend fun update(movement: Movement) = dao.update(movement.toEntity())
+    suspend fun update(movement: Movement) {
+        validateAccount(movement.accountId)
+        dao.update(movement.toEntity())
+    }
 
     // --- Conciliación ---
 
@@ -104,15 +132,20 @@ class MovementRepository(
         amountCents: Long,
         occurredAt: Instant,
         label: String?,
+        accountId: String? = null,
+        classification: MovementClassification = MovementClassification.BUSINESS,
+        id: UUID = newId(),
     ): UUID {
+        require(classification != MovementClassification.EXCLUDED)
+        validateAccount(accountId)
         val movement = MovementFactory.manual(
-            id = newId(),
+            id = id,
             amountCents = amountCents,
             occurredAt = occurredAt,
             label = label,
             now = now(),
-        )
-        dao.insert(movement.toEntity())
+        ).copy(accountId = accountId, classification = classification)
+        insertIdempotent(movement)
         return movement.id
     }
 
@@ -121,17 +154,72 @@ class MovementRepository(
         amountCents: Long,
         occurredAt: Instant,
         reason: String,
+        accountId: String? = null,
+        classification: MovementClassification = MovementClassification.BUSINESS,
+        id: UUID = newId(),
     ): UUID {
+        require(classification != MovementClassification.EXCLUDED)
+        validateAccount(accountId)
         val movement = MovementFactory.adjustment(
-            id = newId(),
+            id = id,
             amountCents = amountCents,
             occurredAt = occurredAt,
             reason = reason,
             now = now(),
-        )
-        dao.insert(movement.toEntity())
+        ).copy(accountId = accountId, classification = classification)
+        insertIdempotent(movement)
         return movement.id
     }
+
+    /**
+     * Un mismo intento puede llegar dos veces tras una recreación. `IGNORE` evita sobrescribir
+     * una fila previa. Si el id ya existe, solo se recupera el éxito cuando el contenido canónico
+     * coincide; con otros datos se devuelve un conflicto explícito.
+     */
+    private suspend fun insertIdempotent(movement: Movement) {
+        val rowId = dao.insertIfAbsent(movement.toEntity())
+        if (rowId == -1L) {
+            val stored = dao.getById(movement.id)
+                ?: throw IllegalStateException("No se pudo registrar el movimiento.")
+            if (stored.toDomain().attemptContent() != movement.attemptContent()) {
+                throw MovementAttemptConflictException(
+                    "Este intento ya se guardó con otros datos. Revisa Movimientos antes de crear otro.",
+                )
+            }
+        }
+    }
+
+    override suspend fun saveManual(
+        amountCents: Long,
+        occurredAt: Instant,
+        label: String?,
+        accountId: String?,
+        classification: MovementClassification,
+        id: UUID,
+    ): UUID = addManual(
+        amountCents = amountCents,
+        occurredAt = occurredAt,
+        label = label,
+        accountId = accountId,
+        classification = classification,
+        id = id,
+    )
+
+    override suspend fun saveAdjustment(
+        amountCents: Long,
+        occurredAt: Instant,
+        reason: String,
+        accountId: String?,
+        classification: MovementClassification,
+        id: UUID,
+    ): UUID = addAdjustment(
+        amountCents = amountCents,
+        occurredAt = occurredAt,
+        reason = reason,
+        accountId = accountId,
+        classification = classification,
+        id = id,
+    )
 
     suspend fun classify(id: UUID, classification: MovementClassification): Boolean =
         mutate(id) { movement -> MovementEdits.classify(movement, classification, now()) }
@@ -142,6 +230,10 @@ class MovementRepository(
     suspend fun restore(id: UUID): Boolean =
         mutate(id) { movement -> MovementEdits.restore(movement, now()) }
 
+    /**
+     * Edita con identidad de intento y revisión esperada. La comprobación y la escritura son una
+     * sola transacción: un reenvío antiguo no puede sobrescribir una edición posterior.
+     */
     suspend fun edit(
         id: UUID,
         amountCents: Long,
@@ -149,17 +241,78 @@ class MovementRepository(
         senderName: String?,
         description: String?,
         adjustmentReason: String?,
-    ): Boolean = mutate(id) { movement ->
-        MovementEdits.edit(
-            movement = movement,
-            amountCents = amountCents,
-            occurredAt = occurredAt,
-            senderName = senderName,
-            description = description,
-            adjustmentReason = adjustmentReason,
-            now = now(),
+        expectedVersion: Long,
+        editAttemptId: UUID,
+        accountId: String? = null,
+        updateAccount: Boolean = false,
+    ): MovementEditResult {
+        val requestedSender = senderName.normalizedAttemptText()
+        val requestedDescription = description.normalizedAttemptText()
+        val requestedReason = adjustmentReason.normalizedAttemptText()
+
+        return dao.editAtomically(
+            id = id,
+            expectedVersion = expectedVersion,
+            attemptId = editAttemptId,
+            matches = { current ->
+                val movement = current.toDomain()
+                movement.amountCents == amountCents &&
+                    movement.occurredAt.toPersistedPrecision() == occurredAt.toPersistedPrecision() &&
+                    movement.senderName == requestedSender &&
+                    movement.description == requestedDescription &&
+                    (
+                        movement.source != MovementSource.ADJUSTMENT ||
+                            movement.adjustmentReason == requestedReason
+                        ) &&
+                    (!updateAccount || movement.accountId == accountId)
+            },
+            apply = { current ->
+                val timestamp = now()
+                MovementEdits.edit(
+                    movement = current.toDomain(),
+                    amountCents = amountCents,
+                    occurredAt = occurredAt,
+                    senderName = senderName,
+                    description = description,
+                    adjustmentReason = adjustmentReason,
+                    now = timestamp,
+                ).let { edited ->
+                    if (updateAccount && edited.accountId != accountId) {
+                        edited.copy(accountId = accountId, isEdited = true, updatedAt = timestamp)
+                    } else {
+                        edited
+                    }
+                }.copy(
+                    editVersion = current.editVersion + 1L,
+                    lastEditAttemptId = editAttemptId,
+                ).toEntity()
+            },
         )
     }
+
+    override suspend fun saveEdit(
+        id: UUID,
+        amountCents: Long,
+        occurredAt: Instant,
+        senderName: String?,
+        description: String?,
+        adjustmentReason: String?,
+        accountId: String?,
+        updateAccount: Boolean,
+        expectedVersion: Long,
+        editAttemptId: UUID,
+    ): MovementEditResult = edit(
+        id = id,
+        amountCents = amountCents,
+        occurredAt = occurredAt,
+        senderName = senderName,
+        description = description,
+        adjustmentReason = adjustmentReason,
+        expectedVersion = expectedVersion,
+        editAttemptId = editAttemptId,
+        accountId = accountId,
+        updateAccount = updateAccount,
+    )
 
     /** Cierra el día: marca como revisados los pendientes de la fecha local. Devuelve cuántos. */
     suspend fun closeDay(date: LocalDate): Int = markReviewed(DateRange.day(date), reviewed = true)
@@ -180,12 +333,13 @@ class MovementRepository(
     }
 
     private suspend fun mutate(id: UUID, transform: (Movement) -> Movement): Boolean {
-        val current = dao.getById(id)?.toDomain() ?: return false
-        val updated = transform(current)
-        if (updated != current) {
-            dao.update(updated.toEntity())
+        return dao.mutateAtomically(id) { transform(it.toDomain()).toEntity() }
+    }
+
+    private suspend fun validateAccount(accountId: String?) {
+        if (accountId != null && !dao.accountExists(accountId)) {
+            throw AccountUnavailableException("La cuenta ya no existe. Elige otra.")
         }
-        return true
     }
 }
 

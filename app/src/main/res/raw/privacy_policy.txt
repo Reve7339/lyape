@@ -1,0 +1,29 @@
+LYape — Política de privacidad
+
+Responsable: Reve Dev, desarrollador de LYape.
+Contacto: soporte@yerry.me
+Última actualización: 27 de octubre de 2026.
+
+Qué hace LYape
+LYape es una herramienta local para registrar cobros, gastos, metas y saldos estimados. No es un banco, no mueve dinero y no inicia pagos. No está afiliada a Yape, Plin, Interbank ni al BCP. No necesitas crear una cuenta de usuario.
+
+Acceso a notificaciones
+Si autorizas el acceso en Android, LYape procesa notificaciones de Yape y de Plin en Interbank, también cuando no estás viendo la app. Filtra la aplicación de origen antes de leer su contenido. Descarta notificaciones de otras aplicaciones y formatos que no reconoce. No accede a contraseñas bancarias ni abre tus aplicaciones bancarias.
+
+Datos guardados
+Los cobros reconocidos guardan monto, moneda, remitente cuando está disponible, fecha, medio de pago, clasificación y cuenta local. También se guardan identificadores técnicos y huellas de notificación para evitar duplicados. LYape no guarda el texto completo de la notificación ni el código de seguridad como campo del registro. Los nombres, descripciones, saldos, gastos y metas que introduces quedan guardados localmente junto con sus fechas y cambios.
+
+Almacenamiento y envío
+Los datos se guardan en la base de datos privada de la aplicación y sus preferencias en este dispositivo. LYape no tiene permiso de Internet, servidores, publicidad ni herramientas de analítica. No envía tus movimientos al desarrollador ni los vende. El respaldo automático de Android está desactivado. La base de datos no añade cifrado propio: depende de la protección y del cifrado que ofrezca el dispositivo; un equipo desbloqueado, comprometido o con acceso root puede exponer los datos.
+
+Voz opcional
+Si activas la voz, LYape entrega únicamente el medio y el monto al motor de texto a voz instalado en tu teléfono y elige voces que ese motor declara locales. El motor es un componente independiente y puede tener su propia política de privacidad. Los anuncios pueden oírse con la pantalla bloqueada y ser escuchados por personas cercanas. Una notificación persistente permite administrar o desactivar la sesión. LYape no usa el micrófono.
+
+Tus controles y conservación
+Puedes pausar la captura en Ajustes o revocar el acceso a notificaciones en Android. Esto no elimina el historial. Puedes editar, clasificar o anular movimientos; anular conserva el registro en el historial. Los datos permanecen hasta que borras el almacenamiento de LYape desde los ajustes de Android o desinstalas la aplicación. Esas acciones eliminan los datos locales de ese perfil y no se pueden deshacer desde LYape. No hay una copia en nuestros servidores que podamos recuperar o borrar a distancia. Las cuentas que aparecen en LYape son registros locales, no cuentas abiertas en un banco.
+
+Soporte
+Si escribes a soporte@yerry.me, recibiremos la dirección y el contenido que decidas enviar para atender tu consulta. El correo es un canal externo a la app y lo gestionan sus proveedores. No envíes contraseñas, códigos de seguridad ni capturas con datos bancarios. Cuando tu consulta esté resuelta puedes solicitar la eliminación de la correspondencia que conservemos, salvo obligaciones legales aplicables.
+
+Cambios
+Si cambia el tratamiento de datos, actualizaremos esta política y su fecha. Cualquier acceso nuevo que requiera autorización se solicitará antes de utilizarlo.

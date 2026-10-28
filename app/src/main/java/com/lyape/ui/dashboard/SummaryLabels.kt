@@ -11,11 +11,10 @@ import com.lyape.ui.format.formatCents
 internal fun businessCountLabel(count: Int): String =
     if (count == 1) "1 de negocio" else "$count de negocio"
 
-/** `8 registros · 1 pendiente · S/ 0.10 personal`. */
-internal fun compactSummaryLabel(records: Int, pending: Int, personalCents: Long): String {
+/** Conteo y dinero personal, sin estados de la antigua revisión diaria. */
+internal fun compactSummaryLabel(records: Int, personalCents: Long): String {
     val registros = if (records == 1) "1 registro" else "$records registros"
-    val pendientes = if (pending == 1) "1 pendiente" else "$pending pendientes"
-    return "$registros · $pendientes · ${formatCents(personalCents)} personal"
+    return "$registros · ${formatCents(personalCents)} personal"
 }
 
 /** `Sin pendientes hoy` / `1 pendiente hoy` / `N pendientes hoy`. */

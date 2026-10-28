@@ -8,16 +8,16 @@ class SummaryLabelsTest {
     @Test
     fun `el resumen compacto usa singular cuando hay uno`() {
         assertEquals(
-            "1 registro · 1 pendiente · S/ 0.10 personal",
-            compactSummaryLabel(records = 1, pending = 1, personalCents = 10L),
+            "1 registro · S/ 0.10 personal",
+            compactSummaryLabel(records = 1, personalCents = 10L),
         )
     }
 
     @Test
     fun `el resumen compacto usa plural cuando hay varios`() {
         assertEquals(
-            "8 registros · 3 pendientes · S/ 12.50 personal",
-            compactSummaryLabel(records = 8, pending = 3, personalCents = 1250L),
+            "8 registros · S/ 12.50 personal",
+            compactSummaryLabel(records = 8, personalCents = 1250L),
         )
     }
 

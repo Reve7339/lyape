@@ -2,6 +2,7 @@ package com.lyape.data
 
 import com.lyape.domain.ExpenseSchedule
 import com.lyape.domain.GoalMode
+import com.lyape.domain.GoalType
 import com.lyape.domain.MonthlyExpense
 import com.lyape.domain.MonthlyGoal
 import com.lyape.domain.MonthlyPlan
@@ -29,19 +30,15 @@ class MonthlyPlanRepository(
             dao.observeGoalSettings(),
         ) { monthlyGoal, settings ->
             val mode = settings?.mode?.let(GoalMode::valueOf) ?: GoalMode.BY_MONTH
+            val fixed = settings?.fixedAmountCents?.let { MonthlyGoal(month, it, GoalType.valueOf(settings.fixedType)) }
             val appliedGoal = when (mode) {
-                GoalMode.FIXED_MONTHLY -> settings?.fixedAmountCents?.let { MonthlyGoal(month, it) }
+                GoalMode.FIXED_MONTHLY -> fixed
                 GoalMode.BY_MONTH -> monthlyGoal?.toDomain()
             }
-            mode to appliedGoal
+            MonthlyPlan(month, emptyList(), appliedGoal, mode, fixed, monthlyGoal?.toDomain())
         }
         return combine(expenses, goal) { appliedExpenses, goalState ->
-            MonthlyPlan(
-                month = month,
-                expenses = appliedExpenses,
-                goal = goalState.second,
-                goalMode = goalState.first,
-            )
+            goalState.copy(expenses = appliedExpenses)
         }
     }
 
@@ -65,14 +62,13 @@ class MonthlyPlanRepository(
         val expense = validExpense(expenseId, selectedMonth, name, amountCents, schedule)
         when (schedule) {
             ExpenseSchedule.MONTHLY_EXTRA -> {
-                dao.upsertExpense(expense.toEntity())
-                dao.deleteRecurringExpense(expenseId)
+                dao.savePlannedExpense(expense.toEntity(), null)
             }
 
             ExpenseSchedule.MONTHLY_FIXED,
             ExpenseSchedule.ANNUAL_FIXED,
             -> {
-                dao.upsertRecurringExpense(
+                dao.savePlannedExpense(null,
                     RecurringExpenseEntity(
                         id = expenseId,
                         name = expense.name,
@@ -80,37 +76,36 @@ class MonthlyPlanRepository(
                         schedule = schedule.name,
                     ),
                 )
-                dao.deleteExpense(expenseId)
             }
         }
         return expenseId
     }
 
     suspend fun removeExpense(expense: MonthlyExpense): Boolean = when (expense.schedule) {
-        ExpenseSchedule.MONTHLY_EXTRA -> dao.deleteExpense(expense.id) > 0
+        ExpenseSchedule.MONTHLY_EXTRA -> dao.removePlannedExpense(expense.id, false)
         ExpenseSchedule.MONTHLY_FIXED,
         ExpenseSchedule.ANNUAL_FIXED,
-        -> dao.deleteRecurringExpense(expense.id) > 0
+        -> dao.removePlannedExpense(expense.id, true)
     }
 
     /** Compatibilidad con pruebas y llamadas anteriores: elimina un gasto extra. */
-    suspend fun removeExpense(id: UUID): Boolean = dao.deleteExpense(id) > 0
+    suspend fun removeExpense(id: UUID): Boolean = dao.removePlannedExpense(id, false)
 
     /** Meta exclusiva de [month]. También selecciona el modo por mes. */
     suspend fun setGoal(month: YearMonth, amountCents: Long) = setMonthlyGoal(month, amountCents)
 
-    suspend fun setMonthlyGoal(month: YearMonth, amountCents: Long) {
+    suspend fun setMonthlyGoal(month: YearMonth, amountCents: Long, type: GoalType = GoalType.INCOME) {
         require(amountCents > 0L) { "La meta debe ser mayor que cero." }
-        dao.upsertGoal(MonthlyGoal(month, amountCents).toEntity())
-        setGoalMode(GoalMode.BY_MONTH)
+        dao.saveMonthlyGoal(MonthlyGoal(month, amountCents, type).toEntity())
     }
 
-    suspend fun setFixedGoal(amountCents: Long) {
+    suspend fun setFixedGoal(amountCents: Long, type: GoalType = GoalType.INCOME) {
         require(amountCents > 0L) { "La meta debe ser mayor que cero." }
         dao.upsertGoalSettings(
             GoalSettingsEntity(
                 mode = GoalMode.FIXED_MONTHLY.name,
                 fixedAmountCents = amountCents,
+                fixedType = type.name,
             ),
         )
     }
@@ -121,6 +116,7 @@ class MonthlyPlanRepository(
             GoalSettingsEntity(
                 mode = mode.name,
                 fixedAmountCents = current?.fixedAmountCents,
+                fixedType = current?.fixedType ?: GoalType.INCOME.name,
             ),
         )
     }

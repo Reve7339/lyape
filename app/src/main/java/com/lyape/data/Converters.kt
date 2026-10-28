@@ -3,6 +3,7 @@ package com.lyape.data
 import androidx.room.TypeConverter
 import com.lyape.domain.MovementClassification
 import com.lyape.domain.MovementSource
+import com.lyape.domain.PaymentMedium
 import java.time.Instant
 import java.util.UUID
 
@@ -33,4 +34,10 @@ class Converters {
     @TypeConverter
     fun toClassification(value: String?): MovementClassification? =
         value?.let(MovementClassification::valueOf)
+
+    @TypeConverter
+    fun fromMedium(value: PaymentMedium): String = value.name
+
+    @TypeConverter
+    fun toMedium(value: String): PaymentMedium = PaymentMedium.valueOf(value)
 }

@@ -6,6 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NavStateTest {
+    @Test
+    fun `privacidad se restaura y vuelve a ajustes sin ser un formulario`() {
+        val state = NavState().selectTab(BottomTab.SETTINGS).open(Destination.Privacy)
+        assertEquals(state, navStateFromSavedList(state.toSavedList()))
+        assertFalse(state.current.isRootDestination)
+        assertEquals(ExitDecision.LEAVE, exitDecision(state.current, true))
+        assertEquals(Destination.Settings, state.back().current)
+    }
+
 
     @Test
     fun `inicia en el resumen sin historial`() {
@@ -106,7 +115,8 @@ class NavStateTest {
     fun `la barra inferior solo pertenece a los destinos raiz`() {
         assertTrue(Destination.Summary.isRootDestination)
         assertTrue(Destination.Movements.isRootDestination)
-        assertTrue(Destination.DailyClose.isRootDestination)
+        assertTrue(Destination.Accounts.isRootDestination)
+        assertFalse(Destination.DailyClose.isRootDestination)
         assertTrue(Destination.Settings.isRootDestination)
 
         assertFalse(Destination.AddMovement.isRootDestination)
@@ -173,5 +183,55 @@ class NavStateTest {
             ExitDecision.LEAVE,
             exitDecision(Destination.MonthlyPlan("2026-10"), hasUnsavedChanges = true),
         )
+    }
+
+    @Test
+    fun `cuentas reportes y pagos conservan la pila tras recreacion`() {
+        val state = NavState().selectTab(BottomTab.ACCOUNTS)
+            .open(Destination.AccountDetail("yape"))
+            .open(Destination.AccountForm("balance", "yape"))
+            .open(Destination.AccountForm("add"))
+            .open(Destination.ExpensePayment("pago-1", "2026-10"))
+            .open(Destination.Reports)
+        assertEquals(state, navStateFromSavedList(state.toSavedList()))
+    }
+
+    @Test
+    fun `todos los nuevos formularios protegen los cambios y el guardado`() {
+        listOf(
+            Destination.AccountForm("balance", "yape"),
+            Destination.AccountForm("transfer"),
+            Destination.AccountForm("withdraw"),
+            Destination.AccountForm("add"),
+            Destination.ExpensePayment("pago-1", "2026-10"),
+        ).forEach { destination ->
+            assertFalse(destination.isRootDestination)
+            assertEquals(ExitDecision.CONFIRM, exitDecision(destination, true))
+            assertEquals(ExitDecision.STAY, exitDecision(destination, true, true))
+            assertEquals(ExitDecision.LEAVE, exitDecision(destination, false))
+        }
+    }
+
+    @Test
+    fun `cierre antiguo restaura una ruta para volver a movimientos`() {
+        val restored = navStateFromSavedList(listOf("close"))
+        assertEquals(Destination.Movements, restored.current)
+        assertFalse(restored.canGoBack)
+        assertEquals(BottomTab.MOVEMENTS, restored.selectedTab)
+    }
+
+    @Test
+    fun `formularios guardados mal formados no rompen navegacion`() {
+        assertEquals(Destination.Accounts, decodeDestination("account-form:invalid"))
+        assertEquals(Destination.Summary, decodeDestination("expense-payment:invalid"))
+    }
+
+    @Test
+    fun `pagar y volver conserva el mes que se selecciono dentro del plan`() {
+        val state = NavState().open(Destination.MonthlyPlan("2026-10"))
+            .openExpensePayment("gasto-1", "2026-09")
+        assertEquals(Destination.ExpensePayment("gasto-1", "2026-09"), state.current)
+        assertEquals(Destination.MonthlyPlan("2026-09"), state.back().current)
+        assertEquals(state, navStateFromSavedList(state.toSavedList()))
     }
 }
