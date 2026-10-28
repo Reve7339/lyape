@@ -1,0 +1,305 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-28T21:18:29.033Z",
+  "title": "Design System: LYape Website",
+  "extensions": {
+    "colorMeta": {
+      "cream": {
+        "role": "neutral",
+        "displayName": "Crema cálida",
+        "tonalRamp": [
+          "oklch(15% 0.0176 81.33)",
+          "oklch(26% 0.0176 81.33)",
+          "oklch(38% 0.0176 81.33)",
+          "oklch(49% 0.0176 81.33)",
+          "oklch(61% 0.0176 81.33)",
+          "oklch(72% 0.0176 81.33)",
+          "oklch(84% 0.0176 81.33)",
+          "oklch(95% 0.0176 81.33)"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Papel claro",
+        "tonalRamp": [
+          "oklch(15% 0.0135 78.26)",
+          "oklch(26% 0.0135 78.26)",
+          "oklch(38% 0.0135 78.26)",
+          "oklch(49% 0.0135 78.26)",
+          "oklch(61% 0.0135 78.26)",
+          "oklch(72% 0.0135 78.26)",
+          "oklch(84% 0.0135 78.26)",
+          "oklch(95% 0.0135 78.26)"
+        ]
+      },
+      "grape": {
+        "role": "neutral",
+        "displayName": "Tinta uva",
+        "tonalRamp": [
+          "oklch(15% 0.0555 314.35)",
+          "oklch(26% 0.0555 314.35)",
+          "oklch(38% 0.0555 314.35)",
+          "oklch(49% 0.0555 314.35)",
+          "oklch(61% 0.0555 314.35)",
+          "oklch(72% 0.0555 314.35)",
+          "oklch(84% 0.0555 314.35)",
+          "oklch(95% 0.0555 314.35)"
+        ]
+      },
+      "purple": {
+        "role": "primary",
+        "displayName": "Morado de acción",
+        "tonalRamp": [
+          "oklch(15% 0.1153 313.68)",
+          "oklch(26% 0.1153 313.68)",
+          "oklch(38% 0.1153 313.68)",
+          "oklch(49% 0.1153 313.68)",
+          "oklch(61% 0.1153 313.68)",
+          "oklch(72% 0.1153 313.68)",
+          "oklch(84% 0.1153 313.68)",
+          "oklch(95% 0.1153 313.68)"
+        ]
+      },
+      "purple-dark": {
+        "role": "primary",
+        "displayName": "Morado profundo",
+        "tonalRamp": [
+          "oklch(15% 0.1004 313.03)",
+          "oklch(26% 0.1004 313.03)",
+          "oklch(38% 0.1004 313.03)",
+          "oklch(49% 0.1004 313.03)",
+          "oklch(61% 0.1004 313.03)",
+          "oklch(72% 0.1004 313.03)",
+          "oklch(84% 0.1004 313.03)",
+          "oklch(95% 0.1004 313.03)"
+        ]
+      },
+      "lavender": {
+        "role": "secondary",
+        "displayName": "Lavanda suave",
+        "tonalRamp": [
+          "oklch(15% 0.0256 319.88)",
+          "oklch(26% 0.0256 319.88)",
+          "oklch(38% 0.0256 319.88)",
+          "oklch(49% 0.0256 319.88)",
+          "oklch(61% 0.0256 319.88)",
+          "oklch(72% 0.0256 319.88)",
+          "oklch(84% 0.0256 319.88)",
+          "oklch(95% 0.0256 319.88)"
+        ]
+      },
+      "lavender-light": {
+        "role": "secondary",
+        "displayName": "Lavanda de fondo",
+        "tonalRamp": [
+          "oklch(15% 0.0164 322.70)",
+          "oklch(26% 0.0164 322.70)",
+          "oklch(38% 0.0164 322.70)",
+          "oklch(49% 0.0164 322.70)",
+          "oklch(61% 0.0164 322.70)",
+          "oklch(72% 0.0164 322.70)",
+          "oklch(84% 0.0164 322.70)",
+          "oklch(95% 0.0164 322.70)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Uva atenuada",
+        "tonalRamp": [
+          "oklch(15% 0.0384 318.07)",
+          "oklch(26% 0.0384 318.07)",
+          "oklch(38% 0.0384 318.07)",
+          "oklch(49% 0.0384 318.07)",
+          "oklch(61% 0.0384 318.07)",
+          "oklch(72% 0.0384 318.07)",
+          "oklch(84% 0.0384 318.07)",
+          "oklch(95% 0.0384 318.07)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Línea lavanda",
+        "tonalRamp": [
+          "oklch(15% 0.0301 322.41)",
+          "oklch(26% 0.0301 322.41)",
+          "oklch(38% 0.0301 322.41)",
+          "oklch(49% 0.0301 322.41)",
+          "oklch(61% 0.0301 322.41)",
+          "oklch(72% 0.0301 322.41)",
+          "oklch(84% 0.0301 322.41)",
+          "oklch(95% 0.0301 322.41)"
+        ]
+      },
+      "bezel": {
+        "role": "neutral",
+        "displayName": "Bisel oscuro",
+        "tonalRamp": [
+          "oklch(15% 0.0140 310.83)",
+          "oklch(26% 0.0140 310.83)",
+          "oklch(38% 0.0140 310.83)",
+          "oklch(49% 0.0140 310.83)",
+          "oklch(61% 0.0140 310.83)",
+          "oklch(72% 0.0140 310.83)",
+          "oklch(84% 0.0140 310.83)",
+          "oklch(95% 0.0140 310.83)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Titular principal",
+        "purpose": "Titular serif de la portada; los ajustes responsive están en Layout."
+      },
+      "headline": {
+        "displayName": "Título de sección",
+        "purpose": "Titulares de sección de la web."
+      },
+      "body": {
+        "displayName": "Lectura",
+        "purpose": "Base de párrafos; privacidad y explicación ajustan tamaño e interlineado."
+      },
+      "label": {
+        "displayName": "Acción",
+        "purpose": "Texto semibold de botones y enlaces."
+      },
+      "caption": {
+        "displayName": "Pie de captura",
+        "purpose": "Identifica cada captura auténtica."
+      }
+    },
+    "shadows": [
+      {
+        "name": "phone-rest",
+        "value": "0 14px 24px rgba(53,34,62,.19)",
+        "purpose": "Separar el teléfono del fondo."
+      },
+      {
+        "name": "phone-hover",
+        "value": "0 16px 28px rgba(53,34,62,.19)",
+        "purpose": "Estado hover del enlace de ampliación."
+      },
+      {
+        "name": "phone-entry",
+        "value": "0 4px 8px rgba(53,34,62,.19)",
+        "purpose": "Sombra inicial de la entrada del teléfono."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease",
+        "value": "cubic-bezier(.16,1,.3,1)",
+        "purpose": "Curva compartida para fondo de botón y entrada de teléfono."
+      },
+      {
+        "name": "button-hover",
+        "value": "160ms",
+        "purpose": "Transición de color del fondo; se elimina con movimiento reducido."
+      },
+      {
+        "name": "phone-entry",
+        "value": "420ms",
+        "purpose": "Entrada desde translateY(9px), solo desde 901px y sin movimiento reducido."
+      },
+      {
+        "name": "phone-stagger",
+        "value": "60ms, 120ms",
+        "purpose": "Retrasos de la segunda y tercera captura."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact-desktop",
+        "value": "1050px"
+      },
+      {
+        "name": "stacked-hero",
+        "value": "900px"
+      },
+      {
+        "name": "mobile",
+        "value": "600px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Botón principal",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Enlace de acción con icono SVG y foco visible.",
+      "html": "<a class=\"ds-button\" href=\"#como-funciona\">Conocer LYape <svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" aria-hidden=\"true\"><path d=\"M12 4v16m-6-6 6 6 6-6\"/></svg></a>",
+      "css": ".ds-button{display:inline-flex;align-items:center;justify-content:center;gap:.8rem;min-height:48px;padding:.85rem 1.2rem;border-radius:12px;background:var(--purple,#704386);color:var(--paper,#FFF9F0);font-family:var(--sans,\"Figtree\",sans-serif);font-size:1rem;font-weight:600;text-decoration:none;transition:background-color 160ms var(--ease,cubic-bezier(.16,1,.3,1))}.ds-button svg{flex:none}.ds-button:hover{background:var(--purple-dark,#542F67);color:var(--paper,#FFF9F0)}.ds-button:focus-visible{outline:3px solid var(--purple,#704386);outline-offset:5px}@media(prefers-reduced-motion:reduce){.ds-button{transition:none}}"
+    },
+    {
+      "name": "Enlace de texto",
+      "kind": "custom",
+      "refersTo": "text-link",
+      "description": "Acción secundaria subrayada con flecha SVG.",
+      "html": "<a class=\"ds-text-link\" href=\"privacidad/\">Cómo se cuidan tus datos <svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" aria-hidden=\"true\"><path d=\"M4 12h16m-6-6 6 6-6 6\"/></svg></a>",
+      "css": ".ds-text-link{display:inline-flex;align-items:center;gap:.5rem;min-height:44px;color:var(--grape,#35223E);font-family:var(--sans,\"Figtree\",sans-serif);font-size:1rem;font-weight:600;text-underline-offset:.23em;text-decoration-thickness:1px}.ds-text-link svg{flex:none}.ds-text-link:hover{color:var(--purple,#704386)}.ds-text-link:focus-visible{outline:3px solid var(--purple,#704386);outline-offset:5px}"
+    },
+    {
+      "name": "Navegación",
+      "kind": "nav",
+      "refersTo": "navigation",
+      "description": "Destinos públicos visibles en una fila; la cabecera les dedica otra fila en móvil.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Navegación principal\"><a href=\"#la-app\">La app</a><a href=\"privacidad/\">Privacidad</a><a href=\"#soporte\">Soporte</a></nav>",
+      "css": ".ds-nav{display:flex;align-items:center;gap:2rem;font-family:var(--sans,\"Figtree\",sans-serif);}.ds-nav a{color:var(--grape,#35223E);padding:.75rem 0;text-decoration:none;font-size:1.05rem;text-underline-offset:.23em;text-decoration-thickness:1px}.ds-nav a:hover{color:var(--purple,#704386);text-decoration:underline}.ds-nav a:focus-visible{outline:3px solid var(--purple,#704386);outline-offset:5px}@media(max-width:600px){.ds-nav{width:100%}}"
+    },
+    {
+      "name": "Estado informativo",
+      "kind": "chip",
+      "refersTo": "status",
+      "description": "Etiqueta no interactiva del estado de disponibilidad.",
+      "html": "<span class=\"ds-status\">En pruebas</span>",
+      "css": ".ds-status{display:inline-block;background:var(--lavender,#E9DCEC);color:var(--purple-dark,#542F67);border-radius:12px;padding:.65rem 1rem;font-family:var(--sans,\"Figtree\",sans-serif);font-size:.93rem;white-space:nowrap}@media(max-width:600px){.ds-status{font-size:.8rem;padding:.5rem .75rem}}"
+    },
+    {
+      "name": "Ejemplo de voz",
+      "kind": "custom",
+      "refersTo": "voice-example",
+      "description": "Frase ilustrativa con altavoz SVG; no inicia reproducción.",
+      "html": "<div class=\"ds-voice\"><svg viewBox=\"0 0 48 48\" width=\"48\" height=\"48\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m24 10-10 9H7v10h7l10 9V10Zm8 7a10 10 0 0 1 0 14m6-21a20 20 0 0 1 0 28\"/></svg><p>«Yape: diez soles».</p><span>Ejemplo de aviso de voz</span></div>",
+      "css": ".ds-voice{padding:2rem 0;max-width:26rem;color:var(--purple,#704386);font-family:var(--sans,\"Figtree\",sans-serif);}.ds-voice svg{margin-bottom:1.5rem}.ds-voice p{font-family:var(--serif,\"LYape Serif\",Georgia,serif);font-size:clamp(1.8rem,3vw,2.6rem);line-height:1.25;margin:0 0 1rem}.ds-voice span{font-size:.9rem;color:var(--muted,#69596E)}@media(max-width:600px){.ds-voice{padding:1rem 0 0}.ds-voice svg{width:32px;height:32px;margin-bottom:1rem}.ds-voice p{font-size:1.8rem}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Bodega cálida",
+    "overview": "La extensión web conserva la identidad aprobada de LYape: crema, tinta uva, acentos morados y el logo Registro continuo. Los titulares serif tienen presencia; el texto sans serif y las acciones breves mantienen una lectura cercana y clara.\n\nEste documento describe exclusivamente la web en `website/` y la página de privacidad que genera `scripts/build_website.py`. No establece ni sustituye la autoridad visual de Android. Los valores proceden de `website/styles.css` y los componentes de `website/index.html`; la dirección y la adaptación autorizada se conservan en `.impeccable/surfaces/website-index-html.md`. La composición concreta de la portada pertenece a ese brief.",
+    "keyCharacteristics": [
+      "Fondo crema, tinta uva y capas suaves de lavanda.",
+      "Source Serif 4 para titulares y Figtree para lectura y acciones.",
+      "Capturas auténticas con proporción intacta y marcos discretos.",
+      "Superficies planas; profundidad reservada a los teléfonos."
+    ],
+    "rules": [
+      {
+        "name": "The Cream and Grape Rule",
+        "body": "Mantener el fondo claro y la tinta uva como base de esta extensión web; el morado identifica acciones y énfasis.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Voices Rule",
+        "body": "Usar la serif para titulares y la voz ilustrada; usar Figtree para navegación, explicación y acciones.",
+        "section": "typography"
+      },
+      {
+        "name": "The Phone Depth Rule",
+        "body": "Reservar las sombras de esta web para las capturas enmarcadas; las secciones y acciones permanecen planas.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** conservar la identidad Bodega cálida y el logo Registro continuo.",
+      "**Do** usar las capturas reales con sus proporciones y contenido intactos.",
+      "**Do** mantener visibles el foco, los destinos de navegación y las indicaciones de desplazamiento.",
+      "**Do** servir las fuentes localmente y respetar la preferencia de movimiento reducido."
+    ],
+    "donts": [
+      "**Don't** trasladar estas reglas web a Android como si sustituyeran su sistema visual.",
+      "**Don't** inventar pantallas, cifras o funcionalidades dentro de las imágenes de producto.",
+      "**Don't** sustituir iconos SVG por caracteres tipográficos.",
+      "**Don't** convertir el estado de pruebas en un botón de descarga sin un destino real aprobado."
+    ]
+  }
+}
