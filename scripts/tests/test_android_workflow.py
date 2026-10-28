@@ -18,6 +18,13 @@ class AndroidWorkflowTest(unittest.TestCase):
     def setUp(self):
         self.workflow = WORKFLOW.read_text(encoding="utf-8")
 
+    def test_compose_host_activity_is_available_only_in_debug(self):
+        build = (PROJECT / "app/build.gradle.kts").read_text(encoding="utf-8")
+        catalog = (PROJECT / "gradle/libs.versions.toml").read_text(encoding="utf-8")
+        self.assertIn("debugImplementation(libs.androidx.compose.ui.test.manifest)", build)
+        self.assertNotIn("implementation(libs.androidx.compose.ui.test.manifest)", build)
+        self.assertIn('name = "ui-test-manifest"', catalog)
+
     def job(self, name):
         match = re.search(
             rf"^  {name}:\n(.*?)(?=^  [\w-]+:\n|\Z)",

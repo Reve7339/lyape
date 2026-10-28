@@ -9,9 +9,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.UUID
 
 /**
  * Prueba instrumentada preparada para CI. No se ejecutó en esta revisión.
@@ -24,37 +24,37 @@ class VoiceNotificationChannelTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val manager = context.getSystemService(NotificationManager::class.java)
 
-    @Before
-    fun cleanChannel() {
-        manager.deleteNotificationChannel(VoiceNotificationChannel.ID)
-    }
+    private val channelId = "voice-test-${UUID.randomUUID()}"
 
     @After
     fun deleteChannel() {
-        manager.deleteNotificationChannel(VoiceNotificationChannel.ID)
+        manager.deleteNotificationChannel(channelId)
     }
 
     @Test
     fun crearElCanalNoEvadeUnBloqueoExistente() {
-        VoiceNotificationChannel.ensure(context)
-        val created = manager.getNotificationChannel(VoiceNotificationChannel.ID)
-        assertNotNull(created)
-        assertFalse(VoiceNotificationChannel.isBlocked(context))
-
-        manager.deleteNotificationChannel(VoiceNotificationChannel.ID)
+        // No borrar/recrear para simular un bloqueo: Android restaura los ajustes del ID.
+        // Se prepara un canal NUEVO bloqueado y se ejecuta la misma lógica de producción.
         manager.createNotificationChannel(
-            NotificationChannel(
-                VoiceNotificationChannel.ID,
-                "Avisos de voz",
-                NotificationManager.IMPORTANCE_NONE,
-            ),
+            NotificationChannel(channelId, "Avisos de voz", NotificationManager.IMPORTANCE_NONE),
         )
-        assertTrue(VoiceNotificationChannel.isBlocked(context))
-
-        VoiceNotificationChannel.ensure(context)
-        val blocked = manager.getNotificationChannel(VoiceNotificationChannel.ID)
+        assertTrue(VoiceNotificationChannel.isBlocked(context, channelId))
+        repeat(2) { VoiceNotificationChannel.ensure(context, channelId) }
+        val blocked = manager.getNotificationChannel(channelId)
         assertNotNull(blocked)
         assertEquals(NotificationManager.IMPORTANCE_NONE, blocked.importance)
-        assertTrue(VoiceNotificationChannel.isBlocked(context))
+        assertTrue(VoiceNotificationChannel.isBlocked(context, channelId))
+    }
+
+    @Test
+    fun canalNuevoEsSilenciosoYNoEstaBloqueado() {
+        assertTrue(VoiceNotificationChannel.isBlocked(context, channelId))
+        VoiceNotificationChannel.ensure(context, channelId)
+        val created = manager.getNotificationChannel(channelId)
+        assertNotNull(created)
+        assertEquals(NotificationManager.IMPORTANCE_LOW, created.importance)
+        org.junit.Assert.assertNull(created.sound)
+        assertFalse(created.shouldVibrate())
+        assertFalse(VoiceNotificationChannel.isBlocked(context, channelId))
     }
 }

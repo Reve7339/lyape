@@ -4,6 +4,8 @@ import androidx.compose.ui.semantics.Role
 import android.graphics.Bitmap
 import java.io.File
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
@@ -14,19 +16,24 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDialog
+import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.espresso.IdlingPolicies
-import androidx.test.espresso.Espresso
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.test.platform.app.InstrumentationRegistry
 import com.lyape.MainActivity
 import com.lyape.domain.MovementClassification
@@ -410,7 +417,13 @@ class LyapeUserJourneysTest {
         waitText("Venta de importe largo")
         val name = compose.onNodeWithText("Venta de importe largo", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         val amount = compose.onNodeWithText("+ S/ 100.00", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-        compose.onNodeWithText("VD", useUnmergedTree = true).assertIsDisplayed()
+        // Las iniciales son decorativas y no tienen semántica de texto para TalkBack.
+        val avatar = compose.onNodeWithTag("movement-avatar-${records().single().id}", useUnmergedTree = true)
+        avatar.assertIsDisplayed()
+        val avatarBounds = avatar.fetchSemanticsNode().boundsInRoot
+        assertTrue("El avatar debe conservar su tamaño", avatarBounds.width > 0 && avatarBounds.height > 0)
+        assertTrue("El avatar debe quedar antes del nombre", avatarBounds.right <= name.left)
+        compose.onNodeWithText("VD").assertDoesNotExist()
         assertTrue("El importe debe quedar a la derecha del nombre", amount.left >= name.right)
     }
 
@@ -493,6 +506,7 @@ class LyapeUserJourneysTest {
 
     /** Solo datos ficticios de la aplicación aislada de pruebas, nunca datos del teléfono. */
     @Test fun ui25PlayScreenshotsWithFictionalData() {
+        waitText("Ingresos del mes")
         runBlocking {
             app.accountsRepository.setBalance("yape", 78_000, 5_000)
             app.accountsRepository.setBalance("cash", 24_000, 0)
@@ -504,11 +518,19 @@ class LyapeUserJourneysTest {
         seed("Venta de la tarde", 16_000)
         seed("Cobro personal", 5_000, MovementClassification.PERSONAL)
         awaitData { records().size == 4 }
+        // Separar un fallo de datos de un timeout del selector de UI.
+        assertEquals(36_500L, com.lyape.domain.TotalsCalculator.totalFor(records()).businessCents)
         // Espera a una cifra real del resumen antes de capturar, sin sleeps arbitrarios.
         waitText("S/ 365.00", substring = true)
         playScreenshot("01-inicio")
         tab("Movimientos")
-        waitText("Venta mostrador")
+        // La fila más antigua puede no estar compuesta aún en LazyColumn. Buscar mediante
+        // su scroll semántico y volver al inicio para la captura, no esperar fuera de pantalla.
+        waitForNode(hasScrollToIndexAction())
+        val history = compose.onNode(hasScrollToIndexAction())
+        history.performScrollToNode(hasText("Venta mostrador"))
+        compose.onNodeWithText("Venta mostrador").assertIsDisplayed()
+        history.performScrollToIndex(0)
         playScreenshot("02-movimientos")
         tab("Cuentas")
         waitText("Yape")
@@ -579,18 +601,48 @@ class LyapeUserJourneysTest {
         node.performTextReplacement(value)
     }
     private fun click(text: String) {
-        compose.onNode(hasText(text) and hasClickAction()).performScrollTo().performClick()
+        val matcher = hasText(text) and hasClickAction() and isEnabled()
+        waitForNode(matcher)
+        val node = compose.onNode(matcher)
+        // Los botones de AlertDialog/menús no pertenecen necesariamente a un scroll.
+        val scrollParent = hasAnyAncestor(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy))
+        if (compose.onAllNodes(matcher and scrollParent).fetchSemanticsNodes().isNotEmpty()) {
+            node.performScrollTo()
+        }
+        node.assertIsDisplayed().performClick()
     }
     private fun systemBack() {
         // Con el IME abierto, el primer Atrás puede solo ocultarlo: aquí comprobamos la salida
         // del formulario, no el cierre del teclado. Los valores deben seguir intactos.
-        Espresso.closeSoftKeyboard()
+        compose.activityRule.scenario.onActivity { activity ->
+            activity.currentFocus?.clearFocus()
+            WindowInsetsControllerCompat(activity.window, activity.window.decorView)
+                .hide(WindowInsetsCompat.Type.ime())
+        }
+        compose.waitUntil(10_000) {
+            var hidden = false
+            compose.activityRule.scenario.onActivity { activity ->
+                hidden = ViewCompat.getRootWindowInsets(activity.window.decorView)
+                    ?.isVisible(WindowInsetsCompat.Type.ime()) != true
+            }
+            hidden
+        }
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         compose.waitForIdle()
     }
     private fun waitText(text: String, substring: Boolean = false) {
-        compose.waitUntil(10_000) {
-            compose.onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
+        waitForNode(hasText(text, substring = substring))
+    }
+    private fun waitForNode(matcher: SemanticsMatcher) {
+        try {
+            compose.waitUntil(10_000) {
+                compose.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()
+            }
+        } catch (timeout: ComposeTimeoutException) {
+            // Solo datos ficticios: el reporte CI debe mostrar qué estaba en pantalla.
+            val visibleText = compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.Text), useUnmergedTree = true)
+                .fetchSemanticsNodes().joinToString("\n") { it.config[SemanticsProperties.Text].toString() }
+            throw AssertionError("No apareció: $matcher\nTextos de la pantalla:\n$visibleText", timeout)
         }
     }
     private fun awaitData(condition: () -> Boolean) = compose.waitUntil(10_000, condition)

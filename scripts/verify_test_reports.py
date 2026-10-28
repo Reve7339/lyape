@@ -179,6 +179,7 @@ REQUIRED_SCENARIOS = {
         },
         "com.lyape.voice.VoiceNotificationChannelTest": {
             "crearElCanalNoEvadeUnBloqueoExistente",
+            "canalNuevoEsSilenciosoYNoEstaBloqueado",
         },
         "com.lyape.acceptance.BusinessJourneyAcceptanceTest": {
             "bdd08DuplicateDeliveryAndPauseResume",

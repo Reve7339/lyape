@@ -203,6 +203,9 @@ class CaptureAccountsIntegrationTest {
 
     @Test
     fun unaSolicitudDesactualizadaNoRedirigeUnVinculoQueYaEsValido() = runBlocking {
+        // Plin ya nace en setUp: una reparación obsoleta debe preservarlo, no borrarlo.
+        val defaultBefore = database.accountsDao().account("plin")
+        assertNotNull(defaultBefore)
         val broken = accounts.addAccount("Interbank temporal")
         val repairedElsewhere = accounts.addAccount("Interbank vigente")
         accounts.setCaptureAccount(CaptureProvider.INTERBANK_PLIN, broken)
@@ -214,7 +217,7 @@ class CaptureAccountsIntegrationTest {
 
         assertEquals(CaptureLinkRepair.ALREADY_VALID, result)
         assertEquals(repairedElsewhere, accounts.accountIdFor(CaptureProvider.INTERBANK_PLIN))
-        assertNull(database.accountsDao().account("plin"))
+        assertEquals(defaultBefore, database.accountsDao().account("plin"))
     }
 
     @Test

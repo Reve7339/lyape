@@ -152,12 +152,15 @@ object VoiceServiceIntents {
 object VoiceNotificationChannel {
     const val ID = "voice_session"
 
-    fun ensure(context: Context) {
+    fun ensure(context: Context) = ensure(context, ID)
+
+    /** ID inyectable para probar canales aislados sin alterar el canal de la sesión. */
+    internal fun ensure(context: Context, channelId: String) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         // Se vuelve a crear también si ya existe para actualizar nombre y descripción al migrar
         // textos; Android conserva la importancia y las preferencias del usuario.
         val channel = NotificationChannel(
-            ID,
+            channelId,
             context.getString(R.string.voice_channel_name),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
@@ -169,9 +172,11 @@ object VoiceNotificationChannel {
         manager.createNotificationChannel(channel)
     }
 
-    fun isBlocked(context: Context): Boolean {
+    fun isBlocked(context: Context): Boolean = isBlocked(context, ID)
+
+    internal fun isBlocked(context: Context, channelId: String): Boolean {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return true
-        val channel = manager.getNotificationChannel(ID) ?: return true
+        val channel = manager.getNotificationChannel(channelId) ?: return true
         return channel.importance == NotificationManager.IMPORTANCE_NONE
     }
 }

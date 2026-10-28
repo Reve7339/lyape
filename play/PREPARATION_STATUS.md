@@ -1,9 +1,9 @@
-# Estado de preparación — 27 de octubre de 2026
+# Estado de preparación — 28 de octubre de 2026
 
 ## Preparado en el árbol local
 
 - API de compilación/objetivo 36, AGP 8.10.1 y wrapper Gradle 8.11.1 con checksum oficial.
-- Kotlin/KSP actualizados a 2.0.21/2.0.21-1.0.28. Room está en la versión 9, con migración
+- Kotlin/KSP permanecen en 2.0.21/2.0.21-1.0.28. El esquema de la base Room está en la versión 9 (la biblioteca sigue en 2.6.1), con migración
   no destructiva 8→9 y esquemas 8/9 versionados; las pruebas Android cubren la migración.
 - Interbank-Plin figura habilitado provisionalmente con el paquete confirmado
   `pe.com.interbank.mobilebanking`. La compatibilidad física, las variantes de notificación y
@@ -19,7 +19,7 @@
 
 ## Verificado en esta preparación
 
-- **75 pruebas Python correctas** (`python3 -m unittest discover -s scripts/tests`).
+- **76 pruebas Python correctas** (`python3 -m unittest discover -s scripts/tests`).
 - `prepare_play_assets.py --check`: política y SVGs coinciden con sus fuentes.
 - PNG: `icon.png` 512×512 y `feature.png` 1024×500.
 - `git diff --check`: correcto.
@@ -30,23 +30,39 @@
 - `actionlint` no está instalado en este entorno y no se reejecutó. Los contratos Python del
   workflow sí pasan.
 
-## Bloqueado / no ejecutado
+## CI del commit c4c82d0
 
-El intento local de `:app:testDebugUnitTest` falló antes de compilar, al resolver el plugin KSP.
+El usuario subió el commit a main. La ejecución 40634712383 completó correctamente el trabajo
+Pruebas y lint. Instrumentación ejecutó 147 pruebas en cada API: 9 fallos en 26, 6 en 35 y 7 en 36.
+Los tres reportes confirman la migración 8→9 aprobada. El AAB y la publicación se omitieron.
+
+Correcciones locales pendientes de nueva CI:
+
+- Actividad anfitriona Compose disponible solo en debug mediante ui-test-manifest.
+- Esperas por controles habilitados tras lecturas asíncronas; scroll solo donde existe.
+- Avatar verificado por su contenedor, conservando las iniciales fuera de TalkBack.
+- Capturas: buscar la última fila mediante LazyColumn, no esperar que ya esté compuesta.
+- Plin: comprobar que una reparación obsoleta preserva la cuenta predeterminada existente.
+- Canales de voz aislados por ID: no simular un bloqueo borrando/recreando el mismo canal.
+- Teclado: cierre con insets y espera verificable antes de probar la navegación Atrás.
+- Diagnóstico de los textos presentes si una espera de interfaz vuelve a fallar.
+
+No se quitaron pruebas ni se aceptaron fallos para pasar la puerta de calidad.
+
+## Bloqueo local / pendiente
+
+El intento local de `:app:compileDebugAndroidTestKotlin` falló antes de compilar, al resolver el plugin KSP.
 El entorno no encontró el artefacto en los repositorios configurados; no se cambiaron los
 repositorios del proyecto ni se eludieron sus controles. En consecuencia:
 
-- No hay una ejecución JVM/lint nueva de este árbol que pueda presentarse como verde.
-- No hay APK ni AAB nuevo validado de estos cambios.
-- No se ejecutaron emuladores, instrumentación, capturas nuevas ni instalación en teléfono.
-- La migración 8→9 y los casos Room están preparados para la suite Android, pero no se
-  ejecutaron en este entorno.
+- No hay compilación ni instrumentación aprobada de estas últimas correcciones locales.
+- No hay APK ni AAB validado para distribuir.
+- No se ejecutaron emuladores, instrumentación ni instalación local en teléfono.
 - La interfaz Android nueva requiere validación visual real; las capturas antiguas son solo
   referencia.
 
-HEAD es `cd5667f`; el árbol contiene numerosas correcciones, archivos nuevos, `play/`,
-esquemas Room y cambios de workflow sin commit. No se hizo commit, push, etiqueta ni release.
-No se publicó en Google Play ni en GitHub Releases.
+HEAD es `c4c82d0`; estas correcciones posteriores siguen sin commit. No se publicó en Google Play
+ni en GitHub Releases.
 
 ## Siguiente paso
 
