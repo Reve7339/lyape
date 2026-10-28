@@ -183,6 +183,7 @@ class LyapeUserJourneysTest {
         compose.onNodeWithText("¿Descartar cambios?").assertDoesNotExist()
         newMovement(fromMovements = true)
         replace("Monto (S/)", "77")
+        field("Monto (S/)").assertTextContains("77")
         systemBack()
         waitText("¿Descartar cambios?")
         compose.onNodeWithText("Seguir editando").performClick()
@@ -191,6 +192,22 @@ class LyapeUserJourneysTest {
         waitText("¿Descartar cambios?")
         compose.onNodeWithText("Descartar").performClick()
         waitAddAction()
+        assertTrue(records().isEmpty())
+    }
+
+    @Test
+    fun ui07bReopeningAndRevertingDoesNotLeakDirtyState() {
+        repeat(2) {
+            newMovement()
+            replace("Monto (S/)", "77")
+            compose.onNodeWithContentDescription("Volver").performClick()
+            waitText("¿Descartar cambios?")
+            click("Seguir editando")
+            replace("Monto (S/)", "")
+            systemBack()
+            waitAddAction()
+            compose.onNodeWithText("¿Descartar cambios?").assertDoesNotExist()
+        }
         assertTrue(records().isEmpty())
     }
 
@@ -350,7 +367,13 @@ class LyapeUserJourneysTest {
         click("Transferir")
         waitText("Transferencia")
         replace("Importe (S/)", "100")
+        field("Importe (S/)").assertTextContains("100")
+        compose.onNodeWithContentDescription("Desde: Yape").assertExists()
+        compose.onNodeWithContentDescription("Hacia: Efectivo").assertExists()
+        hideKeyboard()
         click("Registrar transferencia")
+        waitForNode(tabMatcher("Cuentas"))
+        compose.onNode(tabMatcher("Cuentas")).assertIsSelected()
         awaitData { runBlocking { app.accountsRepository.observeOperations().first().size == 1 } }
         val summary = runBlocking { app.accountsRepository.observeSummary().first() }
         assertEquals(120_000L, summary.totalCents)
@@ -544,7 +567,11 @@ class LyapeUserJourneysTest {
     private fun playScreenshot(name: String) {
         compose.waitForIdle()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val directory = File(instrumentation.targetContext.getExternalFilesDir(null), "play-screenshots")
+        // AGP recoge este directorio ANTES de desinstalar el APK de pruebas.
+        // La ruta depende de la API; no asumir /sdcard/Android/data en el workflow.
+        val output = InstrumentationRegistry.getArguments().getString("additionalTestOutputDir")
+            ?.let(::File) ?: File(instrumentation.targetContext.getExternalFilesDir(null), "test_data")
+        val directory = File(output, "play-screenshots")
         check(directory.mkdirs() || directory.isDirectory)
         val bitmap = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
         try {
@@ -596,9 +623,11 @@ class LyapeUserJourneysTest {
         SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)
     private fun field(label: String) = compose.onNode(hasSetTextAction() and hasText(label))
     private fun replace(label: String, value: String, scroll: Boolean = true) {
+        waitForNode(hasSetTextAction() and hasText(label) and isEnabled())
         val node = field(label)
         if (scroll) node.performScrollTo()
         node.performTextReplacement(value)
+        compose.waitForIdle()
     }
     private fun click(text: String) {
         val matcher = hasText(text) and hasClickAction() and isEnabled()
@@ -612,8 +641,14 @@ class LyapeUserJourneysTest {
         node.assertIsDisplayed().performClick()
     }
     private fun systemBack() {
+        hideKeyboard()
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
+    }
+    private fun hideKeyboard() {
         // Con el IME abierto, el primer Atrás puede solo ocultarlo: aquí comprobamos la salida
         // del formulario, no el cierre del teclado. Los valores deben seguir intactos.
+        compose.waitForIdle()
         compose.activityRule.scenario.onActivity { activity ->
             activity.currentFocus?.clearFocus()
             WindowInsetsControllerCompat(activity.window, activity.window.decorView)
@@ -627,7 +662,6 @@ class LyapeUserJourneysTest {
             }
             hidden
         }
-        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         compose.waitForIdle()
     }
     private fun waitText(text: String, substring: Boolean = false) {

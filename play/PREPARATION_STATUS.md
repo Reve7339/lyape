@@ -19,7 +19,7 @@
 
 ## Verificado en esta preparación
 
-- **76 pruebas Python correctas** (`python3 -m unittest discover -s scripts/tests`).
+- **82 pruebas Python correctas** (`python3 -m unittest discover -s scripts/tests`).
 - `prepare_play_assets.py --check`: política y SVGs coinciden con sus fuentes.
 - PNG: `icon.png` 512×512 y `feature.png` 1024×500.
 - `git diff --check`: correcto.
@@ -36,7 +36,7 @@ El usuario subió el commit a main. La ejecución 40634712383 completó correcta
 Pruebas y lint. Instrumentación ejecutó 147 pruebas en cada API: 9 fallos en 26, 6 en 35 y 7 en 36.
 Los tres reportes confirman la migración 8→9 aprobada. El AAB y la publicación se omitieron.
 
-Correcciones locales pendientes de nueva CI:
+Correcciones incluidas en el commit posterior `e433f8e`:
 
 - Actividad anfitriona Compose disponible solo en debug mediante ui-test-manifest.
 - Esperas por controles habilitados tras lecturas asíncronas; scroll solo donde existe.
@@ -48,6 +48,30 @@ Correcciones locales pendientes de nueva CI:
 - Diagnóstico de los textos presentes si una espera de interfaz vuelve a fallar.
 
 No se quitaron pruebas ni se aceptaron fallos para pasar la puerta de calidad.
+
+## CI del commit e433f8e
+
+Los nuevos ZIP aportados contienen 148 pruebas por API: todas pasan en 26; en 35 y 36
+fallan dos recorridos (Atrás con formulario modificado y transferencia).
+El log de API 26 confirma `BUILD SUCCESSFUL` y el verificador correcto. El job falla después:
+`adb pull` intenta leer capturas de una app que UTP ya desinstaló al terminar las pruebas.
+
+Correcciones posteriores, pendientes de CI:
+
+- Capturas escritas en `additionalTestOutputDir`, que AGP extrae antes de desinstalar.
+  El workflow recoge las cuatro imágenes desde el host, sin consultar un paquete eliminado;
+  rechaza capturas ausentes, ambiguas o sin cabecera PNG. Guarda también la salida adicional
+  entre los reportes de diagnóstico.
+- Estado de protección del formulario ligado al destino, sin un reinicio asíncrono que pueda
+  sobrescribir los avisos del hijo. Las ediciones notifican cambios en el mismo evento.
+- Pruebas esperan el campo habilitado y la recomposición tras escribir. Se cierra el IME y
+  se espera inactividad antes de transferir o enviar Atrás. La transferencia comprueba sus
+  cuentas, el importe y el regreso a Cuentas, además de los saldos persistidos.
+- Nueva regresión obligatoria de reapertura y reversión de cambios, sin guardar movimientos.
+
+Impeccable se usó para endurecer los estados del formulario; sin rediseño ni cambios de texto.
+No hay validación visual nueva. Las 82 pruebas Python pasan; la compilación Android local
+sigue bloqueada al resolver KSP. No se presenta la nueva corrección como aprobada por Android.
 
 ## Bloqueo local / pendiente
 
@@ -61,7 +85,7 @@ repositorios del proyecto ni se eludieron sus controles. En consecuencia:
 - La interfaz Android nueva requiere validación visual real; las capturas antiguas son solo
   referencia.
 
-HEAD es `c4c82d0`; estas correcciones posteriores siguen sin commit. No se publicó en Google Play
+HEAD es `e433f8e`; estas correcciones posteriores siguen sin commit. No se publicó en Google Play
 ni en GitHub Releases.
 
 ## Siguiente paso

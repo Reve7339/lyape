@@ -118,8 +118,7 @@ jobs:
           script: |
             ./gradlew "-Dorg.gradle.jvmargs=$CI_GRADLE_JVM_ARGS" --no-daemon --console=plain :app:connectedDebugAndroidTest
             python3 scripts/verify_test_reports.py android
-            mkdir -p delivery/play-screenshots
-            adb pull /sdcard/Android/data/com.lyape/files/play-screenshots/. delivery/play-screenshots/
+            python3 scripts/collect_play_screenshots.py
       - name: Guardar capturas con datos ficticios
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -135,6 +134,7 @@ jobs:
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
+            app/build/outputs/connected_android_test_additional_output/
           if-no-files-found: warn
           retention-days: 14
 

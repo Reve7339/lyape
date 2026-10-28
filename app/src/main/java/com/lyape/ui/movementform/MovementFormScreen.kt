@@ -164,6 +164,7 @@ fun AddMovementScreen(
                 result = result,
                 onValuesChange = { updated ->
                     values = updated
+                    onDirtyChange(updated.hasChangesFrom(initialValues))
                     result = null
                     formViewModel.clearError()
                 },
@@ -283,6 +284,7 @@ fun EditMovementScreen(
                             kindLocked = true,
                             onValuesChange = { updated ->
                                 values = updated
+                                onDirtyChange(updated.hasChangesFrom(initialValues))
                                 result = null
                                 formViewModel.clearError()
                             },

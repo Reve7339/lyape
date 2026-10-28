@@ -197,6 +197,7 @@ REQUIRED_SCENARIOS = {
             "ui05InvalidAmountDoesNotSave",
             "ui06NegativeAdjustmentRequiresAndDisplaysReason",
             "ui07BackConfirmsOnlyDirtyForms",
+            "ui07bReopeningAndRevertingDoesNotLeakDirtyState",
             "ui08RecreationKeepsUnsavedValuesAndExitGuard",
             "ui09SearchCombinesWithClassificationFilter",
             "ui10NoDailyClosingRequired",

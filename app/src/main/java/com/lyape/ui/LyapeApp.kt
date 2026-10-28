@@ -85,18 +85,13 @@ fun LyapeApp(modifier: Modifier = Modifier) {
     var navState by rememberSaveable(stateSaver = NavStateSaver) { mutableStateOf(NavState()) }
     var movementsSearchActive by rememberSaveable { mutableStateOf(false) }
     var movementsQuery by rememberSaveable { mutableStateOf("") }
-    var formDirty by rememberSaveable { mutableStateOf(false) }
-    var formSaving by rememberSaveable { mutableStateOf(false) }
-    var confirmingDiscard by rememberSaveable { mutableStateOf(false) }
-    var pendingSettings by rememberSaveable { mutableStateOf(false) }
-
     val destination = navState.current
-
-    LaunchedEffect(destination) {
-        formDirty = false
-        formSaving = false
-        confirmingDiscard = false
-    }
+    // Reiniciar al componer el destino, no en una corrutina que puede sobrescribir
+    // el estado que el formulario nuevo ya notificó (también tras recrear la actividad).
+    var formDirty by rememberSaveable(destination) { mutableStateOf(false) }
+    var formSaving by rememberSaveable(destination) { mutableStateOf(false) }
+    var confirmingDiscard by rememberSaveable(destination) { mutableStateOf(false) }
+    var pendingSettings by rememberSaveable { mutableStateOf(false) }
 
     val requestSettings: () -> Unit = {
         when (exitDecision(destination, formDirty, formSaving)) {

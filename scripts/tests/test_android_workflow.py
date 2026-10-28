@@ -59,6 +59,14 @@ class AndroidWorkflowTest(unittest.TestCase):
     def test_emulator_uses_verified_commit_not_annotated_tag_object(self):
         self.assertIn(EMULATOR_ACTION, self.job("android"))
 
+    def test_captures_use_gradle_outputs_before_device_cleanup(self):
+        job = self.job("android")
+        self.assertNotIn("adb pull", job)
+        self.assertIn("python3 scripts/collect_play_screenshots.py", job)
+        self.assertIn("app/build/outputs/connected_android_test_additional_output/", job)
+        source = (PROJECT / "app/src/androidTest/java/com/lyape/ui/LyapeUserJourneysTest.kt").read_text()
+        self.assertIn('getString("additionalTestOutputDir")', source)
+
     def test_ci_has_explicit_bounded_metaspace_budget(self):
         environment = re.search(r"^env:\n(.*?)(?=^\S|\Z)", self.workflow, re.MULTILINE | re.DOTALL)
         self.assertIsNotNone(environment, "El presupuesto extra pertenece solo al workflow")
