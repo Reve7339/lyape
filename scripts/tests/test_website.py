@@ -147,9 +147,10 @@ class WebsiteTest(unittest.TestCase):
         self.assertIn('href="#prueba"', page)
         self.assertIn('class="testing-steps"', page)
 
-    def test_testing_explains_pending_access_without_collecting_data(self):
+    def test_testing_explains_access_without_collecting_data(self):
         page = (ROOT / "website/index.html").read_text()
-        self.assertIn("el acceso a la prueba sigue en revisión", page)
+        self.assertNotIn("en revisión", page)
+        self.assertNotIn("testing-status", page)
         self.assertIn("Usa la misma cuenta de Google", page)
         self.assertIn("Android 8 o posterior", page)
         self.assertIn("cuenta de Play Store de Perú", page)

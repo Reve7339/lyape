@@ -45,7 +45,6 @@ figcaption{text-align:center;font-size:.85rem;line-height:1.4;margin:1.2rem -.25
 .testing{display:grid;grid-template-columns:.85fr 1.3fr;gap:var(--s7);padding-block:var(--s7);scroll-margin-top:var(--s4)}
 .testing-intro,.testing-guide{min-width:0}
 .testing-intro>p{max-width:48ch;color:var(--muted);font-size:1.1rem}
-.testing-intro .testing-notice{color:var(--purple-dark);font-size:.95rem;margin-bottom:0}
 .testing-steps{list-style:decimal;margin:0;padding-left:var(--s4)}
 .testing-steps li{padding:0 0 var(--s4) var(--s1)}
 .testing-steps li+li{border-top:1px solid var(--line);padding-top:var(--s4)}

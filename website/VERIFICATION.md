@@ -1,5 +1,14 @@
 # Revisión local — 28 de octubre de 2026
 
+## Retirada del aviso temporal — 30 de octubre de 2026
+
+Por petición del usuario se retira el estado de revisión de Play Console del
+registro y la ayuda. El usuario confirmó después que Google Play aceptó el cambio;
+el recorrido real no se ha probado aquí. Se elimina también su referencia ARIA
+y estilo sin uso.
+14 pruebas web correctas; sin despliegue. La verificación visual sigue pendiente.
+El workflow `website.yml` solo se ejecuta manualmente; un push no publica la web.
+
 ## Simplificación de textos — 30 de octubre de 2026
 
 - Petición del usuario: reducir saturación textual, incluida la nota sobre

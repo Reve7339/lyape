@@ -205,8 +205,7 @@ a la izquierda y una lista ordenada de dos pasos a la derecha; hasta 900px se
 apila. Los números indican orden real, no decoración. El primer botón usa el
 morado principal; el segundo, lavanda con texto morado profundo. Ambos destinos
 son externos y avisan de apertura en otra pestaña. No hay formulario ni estado
-de éxito simulado. Una frase breve indica que el acceso por grupo sigue en
-revisión hasta confirmar su publicación. La ayuda usa `details/summary` nativo,
+de éxito simulado ni avisos temporales de revisión de Play Console. La ayuda usa `details/summary` nativo,
 con foco visible y una acción de soporte. Se conservan fuentes locales y capturas.
 
 Por petición del usuario se elimina la sobreexplicación: cada paso es un botón,
