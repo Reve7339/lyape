@@ -20,10 +20,12 @@ class References(HTMLParser):
         super().__init__()
         self.urls = []
         self.ids = set()
+        self.elements = []
         self.feed(text)
 
     def handle_starttag(self, tag, attrs):
         data = dict(attrs)
+        self.elements.append((tag, data))
         self.urls.extend(data[key] for key in ("href", "src") if key in data)
         if "id" in data:
             self.ids.add(data["id"])
@@ -126,7 +128,48 @@ class WebsiteTest(unittest.TestCase):
     def test_hidden_line_breaks_keep_word_separation(self):
         page = (ROOT / "website/index.html").read_text()
         self.assertIn("efectivo.<br> Las", page)
-        self.assertIn("bien.<br> Tu", page)
+        self.assertIn("negocio,<br> en", page)
+
+    def test_testing_links_are_exact_ordered_and_safe(self):
+        page = (ROOT / "website/index.html").read_text()
+        parsed = References(page)
+        external = [attrs for tag, attrs in parsed.elements if tag == "a" and
+                    attrs.get("href", "").startswith(("https://groups.google.com/", "https://play.google.com/"))]
+        self.assertEqual([link["href"] for link in external], [
+            "https://groups.google.com/g/reve-app-testers",
+            "https://play.google.com/apps/testing/com.lyape",
+        ])
+        for link in external:
+            self.assertEqual(link["target"], "_blank")
+            self.assertEqual(set(link["rel"].split()), {"noopener", "noreferrer"})
+            for described_id in link["aria-describedby"].split():
+                self.assertIn(described_id, parsed.ids)
+        self.assertIn('href="#prueba"', page)
+        self.assertIn('class="testing-steps"', page)
+
+    def test_testing_explains_pending_access_without_collecting_data(self):
+        page = (ROOT / "website/index.html").read_text()
+        self.assertIn("el acceso a la prueba sigue en revisión", page)
+        self.assertIn("Usa la misma cuenta de Google", page)
+        self.assertIn("Android 8 o posterior", page)
+        self.assertIn("cuenta de Play Store de Perú", page)
+        tags = {tag for tag, _ in References(page).elements}
+        self.assertTrue(tags.isdisjoint({"form", "input", "iframe", "script"}))
+        self.assertNotIn("Próximamente en Google Play", page)
+        self.assertIn("Google Groups y Google Play", build_website.website_privacy_html())
+
+    def test_landing_copy_is_concise_but_keeps_safety_information(self):
+        page = (ROOT / "website/index.html").read_text()
+        self.assertNotIn("Capturas reales con datos de ejemplo", page)
+        self.assertNotIn("Tu experiencia ayuda a mejorar", page)
+        steps = page.split('<ol class="testing-steps"', 1)[1].split('</ol>', 1)[0]
+        self.assertNotIn("<h3", steps)
+        self.assertNotIn("<p>", steps)
+        help_text = page.split('<details class="testing-help">', 1)[1].split('</details>', 1)[0]
+        self.assertIn("Android 8 o posterior", help_text)
+        self.assertIn("administradores del grupo pueden ver tu correo", help_text)
+        self.assertIn("No hay respaldo automático", page)
+        self.assertIn("LYape no mueve dinero ni consulta saldos bancarios", page)
 
 
 if __name__ == "__main__":

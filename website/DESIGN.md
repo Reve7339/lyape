@@ -198,7 +198,24 @@ Cada captura real está dentro de un enlace para ampliarla y lleva descripción 
 
 Un SVG de altavoz acompaña una frase serif morada y una aclaración sans serif atenuada. En escritorio la frase usa `clamp(1.8rem, 3vw, 2.6rem)` e interlineado 1.25; en móvil usa 1.8rem y el icono baja de 48px a 32px. Es contenido ilustrativo, no un control de reproducción.
 
-### Reading and keyboard access
+### Registro de prueba cerrada
+
+La extensión del 30-10-2026 mantiene Bodega cálida y añade `#prueba`: introducción
+a la izquierda y una lista ordenada de dos pasos a la derecha; hasta 900px se
+apila. Los números indican orden real, no decoración. El primer botón usa el
+morado principal; el segundo, lavanda con texto morado profundo. Ambos destinos
+son externos y avisan de apertura en otra pestaña. No hay formulario ni estado
+de éxito simulado. Una frase breve indica que el acceso por grupo sigue en
+revisión hasta confirmar su publicación. La ayuda usa `details/summary` nativo,
+con foco visible y una acción de soporte. Se conservan fuentes locales y capturas.
+
+Por petición del usuario se elimina la sobreexplicación: cada paso es un botón,
+sin título y párrafo que repitan su acción. Requisitos y privacidad del grupo
+quedan en «Requisitos y ayuda». Se retira la nota de «capturas reales», el texto
+genérico de soporte y el correo duplicado. Las limitaciones se consultan en
+«Antes de usar LYape»; la pérdida del historial al desinstalar sigue visible.
+
+### Lectura y acceso por teclado
 
 La privacidad conserva el texto de su fuente y añade navegación web. El enlace «Saltar al contenido» aparece al recibir foco y permite saltar al contenido principal. Todos los enlaces conservan indicación de foco visible. Esta web no implementa campos, formularios ni tarjetas de funciones; no se inventan variantes para ellos.
 

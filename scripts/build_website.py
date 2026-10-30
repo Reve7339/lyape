@@ -36,7 +36,7 @@ def website_privacy_html() -> str:
 <title>LYape · Política de privacidad</title>
 <link rel="canonical" href="https://lyape.yerry.me/privacidad/">
 <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
-<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet" href="../styles.css?v=20261030-concise">
 </head><body class="policy-body">
 <a class="skip-link" href="#contenido">Saltar al contenido</a>
 <header class="site-header wrap">
@@ -48,6 +48,7 @@ def website_privacy_html() -> str:
 <section class="website-notice" aria-labelledby="website-title">
 <h2 id="website-title">Sobre esta web</h2>
 <p>Esta página está alojada en GitHub Pages. No añadimos anuncios, analítica, formularios ni cookies propias. El alojamiento es un servicio externo sujeto a la <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">política de privacidad de GitHub</a>. Las fuentes y las imágenes se sirven desde esta misma web.</p>
+<p>Para participar en la prueba cerrada, enlazamos a Google Groups y Google Play. Esta web no recoge tu correo ni comprueba tu pertenencia al grupo. Al unirte, los administradores del grupo pueden ver tu dirección de correo y gestionar tu acceso. Estos servicios están sujetos a la <a href="https://policies.google.com/privacy?hl=es">política de privacidad de Google</a>. Puedes abandonar el grupo desde Google Groups y la prueba desde Google Play.</p>
 </section></main>
 <footer class="site-footer wrap"><p>LYape · Reve Dev</p><a href="mailto:soporte@yerry.me">soporte@yerry.me</a></footer>
 </body></html>

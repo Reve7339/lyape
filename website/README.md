@@ -28,6 +28,23 @@ Git. Falla si faltan archivos de la página o capturas. Solo empaqueta la lista
 explícita del script; no publica el repositorio entero, datos ni claves.
 No necesita Gradle, emuladores ni Node.
 
+## Registro de testers
+
+La sección `#prueba` enlaza, en orden, al grupo público
+`https://groups.google.com/g/reve-app-testers` y a la aceptación de la prueba
+`https://play.google.com/apps/testing/com.lyape`. Ambos enlaces abren otra pestaña.
+Los dos botones son los pasos; requisitos, privacidad y recuperación de acceso
+están en «Requisitos y ayuda», sin repetir instrucciones junto a cada botón.
+No hay formulario, recogida de correos, API de miembros ni verificación automática
+del acceso: el usuario confirma cada paso en Google con la misma cuenta.
+
+Preparado el 30-10-2026 con el cambio de testers aún en revisión. Antes de anunciar
+el registro, confirmar en Play Console que el cambio está publicado y probar el
+recorrido con una cuenta que se una al grupo. Solo entonces retirar el aviso
+`#testing-status` de `index.html`, la referencia a ese ID en el segundo enlace y
+la frase de revisión en la ayuda; actualizar también la prueba correspondiente.
+No confundir miembros del grupo con testers que ya aceptaron participar.
+
 Para previsualizar, sirve la carpeta que devuelve el último comando:
 
 ```sh

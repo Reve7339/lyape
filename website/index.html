@@ -15,7 +15,7 @@
   <meta property="og:image" content="https://lyape.yerry.me/assets/feature.png">
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
   <link rel="preload" href="assets/fonts/source-serif-bold.ttf" as="font" type="font/ttf" crossorigin>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20261030-concise">
 </head>
 <body>
   <a class="skip-link" href="#contenido">Saltar al contenido</a>
@@ -23,6 +23,7 @@
     <a class="brand" href="./" aria-label="LYape, inicio"><img src="assets/logo.svg" alt="" width="52" height="52"><span>LYape</span></a>
     <nav aria-label="Navegación principal">
       <a href="#la-app">La app</a>
+      <a href="#prueba">Probar LYape</a>
       <a href="privacidad/">Privacidad</a>
       <a href="#soporte">Soporte</a>
     </nav>
@@ -34,8 +35,8 @@
         <div class="hero-copy">
           <h1 id="titulo">Tus cobros,<br>en orden.</h1>
           <p class="intro">Yape, Plin y efectivo.<br> Las cuentas de tu negocio,<br> en tu teléfono.</p>
-          <a class="button" href="#como-funciona">Conocer LYape <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 4v16m-6-6 6 6 6-6"/></svg></a>
-          <p class="availability">Para Android · Próximamente en Google Play</p>
+          <a class="button" href="#prueba">Probar LYape <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 4v16m-6-6 6 6 6-6"/></svg></a>
+          <p class="availability">Para Android · Prueba cerrada en Perú</p>
         </div>
         <div class="app-showcase" id="la-app">
           <div class="screens" role="region" aria-label="Capturas de LYape. Desliza para ver las tres pantallas." tabindex="0">
@@ -52,8 +53,34 @@
               <figcaption>Cada cuenta, en su lugar</figcaption>
             </figure>
           </div>
-          <p class="gallery-note">Capturas reales con datos de ejemplo. <span class="swipe-hint">Desliza para ver más.</span></p>
+          <p class="swipe-hint">Desliza para ver más.</p>
         </div>
+      </div>
+    </section>
+    <section class="testing wrap" id="prueba" aria-labelledby="testing-title">
+      <div class="testing-intro">
+        <h2 id="testing-title">Prueba LYape.</h2>
+        <p>Usa la misma cuenta de Google en ambos pasos y en Play Store.</p>
+        <!-- Retirar este aviso solo al confirmar la publicación del cambio de testers en Play Console. -->
+        <p class="testing-notice" id="testing-status">Puedes unirte al grupo; el acceso a la prueba sigue en revisión.</p>
+      </div>
+      <div class="testing-guide">
+        <ol class="testing-steps" aria-label="Pasos para participar en la prueba">
+          <li>
+            <a class="button" href="https://groups.google.com/g/reve-app-testers" target="_blank" rel="noopener noreferrer" aria-describedby="testing-new-tab">Unirme al grupo <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 19 14-14M6 5h13v13"/></svg></a>
+          </li>
+          <li>
+            <a class="button button-secondary" href="https://play.google.com/apps/testing/com.lyape" target="_blank" rel="noopener noreferrer" aria-describedby="testing-status testing-new-tab">Aceptar prueba e instalar <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 19 14-14M6 5h13v13"/></svg></a>
+          </li>
+        </ol>
+        <span class="visually-hidden" id="testing-new-tab">Se abre en otra pestaña.</span>
+        <details class="testing-help">
+          <summary>Requisitos y ayuda</summary>
+          <p>Necesitas Android 8 o posterior y una cuenta de Play Store de Perú. Tras unirte al grupo, acepta la prueba para instalar desde Google Play.</p>
+          <p>Si no puedes acceder, comprueba tu cuenta y tu pertenencia al grupo. Si acabas de unirte, espera unos minutos y reintenta. El cambio de acceso por grupo aún está en revisión.</p>
+          <p>El registro se hace en Google. Los administradores del grupo pueden ver tu correo. <a href="privacidad/#website-title">Privacidad</a>.</p>
+          <a class="text-link" href="mailto:soporte@yerry.me">Pedir ayuda a soporte</a>
+        </details>
       </div>
     </section>
     <section class="local-section" id="como-funciona" aria-labelledby="local-title">
@@ -61,30 +88,32 @@
         <div class="voice-example">
           <svg viewBox="0 0 48 48" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m24 10-10 9H7v10h7l10 9V10Zm8 7a10 10 0 0 1 0 14m6-21a20 20 0 0 1 0 28"/></svg>
           <p>«Yape: diez soles».</p>
-          <span>Ejemplo de aviso de voz</span>
+          <span>Avisos de voz opcionales</span>
         </div>
         <div class="local-copy">
           <h2 id="local-title">Solo en tu teléfono.</h2>
-          <p>Con tu permiso, LYape registra cobros desde las notificaciones de Yape y Plin en Interbank. También puedes añadir movimientos a mano, organizar gastos y definir una meta de ingresos o ganancia.</p>
-          <p>Sin cuenta de usuario, sin anuncios y sin enviar tus movimientos al desarrollador. Si quieres, activa la voz para escuchar el medio y el monto de los nuevos cobros.</p>
+          <p>Registra cobros de Yape y Plin en Interbank desde sus notificaciones, con tu permiso. Añade movimientos, organiza gastos y fija metas.</p>
+          <p>Sin cuenta, sin anuncios. Tus movimientos se quedan en tu teléfono.</p>
           <a class="text-link" href="privacidad/">Cómo se cuidan tus datos <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></a>
         </div>
       </div>
     </section>
     <section class="support wrap" id="soporte" aria-labelledby="support-title">
       <div>
-        <h2 id="support-title">¿Hablamos?</h2>
-        <p>Una duda, una idea o algo que no salió bien.<br> Tu experiencia ayuda a mejorar LYape.</p>
+        <h2 id="support-title">¿Necesitas ayuda?</h2>
       </div>
       <div class="support-actions">
         <a class="button" href="mailto:soporte@yerry.me">Escribir a soporte <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 6 9 7 9-7"/></svg></a>
-        <span class="support-email">soporte@yerry.me</span>
         <a class="text-link" href="https://github.com/Reve7339/lyape">Ver el código en GitHub <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 19 14-14M6 5h13v13"/></svg></a>
       </div>
     </section>
     <aside class="limits wrap" aria-label="Qué debes saber">
-      <p>LYape lleva registros, no mueve dinero ni consulta saldos bancarios. Los saldos son estimaciones: confirma los pagos en tu app bancaria. Plin está disponible mediante Interbank; otros bancos no están confirmados.</p>
-      <p>La captura depende de los permisos, las notificaciones y las restricciones de Android. La voz requiere una voz local compatible. No hay respaldo automático: borrar los datos o desinstalar la app elimina el historial local.</p>
+      <p>No hay respaldo automático: borrar los datos o desinstalar la app elimina el historial local.</p>
+      <details class="usage-help">
+        <summary>Antes de usar LYape</summary>
+        <p>LYape no mueve dinero ni consulta saldos bancarios. Los saldos son estimaciones: confirma los pagos en tu app bancaria. Plin solo está confirmado con Interbank.</p>
+        <p>La captura depende de los permisos, las notificaciones y las restricciones de Android. Los avisos de voz necesitan una voz local compatible.</p>
+      </details>
     </aside>
   </main>
   <footer class="site-footer wrap">
